@@ -11,6 +11,16 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as BudgetsRouteImport } from './routes/budgets'
+import { Route as ChatRouteImport } from './routes/chat'
+import { Route as GoalsRouteImport } from './routes/goals'
+import { Route as NetWorthRouteImport } from './routes/net-worth'
+import { Route as PortfolioRouteImport } from './routes/portfolio'
+import { Route as RetirementRouteImport } from './routes/retirement'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as TransactionsRouteImport } from './routes/transactions'
+import { Route as AccountsIndexRouteImport } from './routes/accounts/index'
+import { Route as AccountsAccountIdRouteImport } from './routes/accounts/$accountId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +32,158 @@ const AboutRoute = AboutRouteImport.update({
   path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BudgetsRoute = BudgetsRouteImport.update({
+  id: '/budgets',
+  path: '/budgets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChatRoute = ChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GoalsRoute = GoalsRouteImport.update({
+  id: '/goals',
+  path: '/goals',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NetWorthRoute = NetWorthRouteImport.update({
+  id: '/net-worth',
+  path: '/net-worth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PortfolioRoute = PortfolioRouteImport.update({
+  id: '/portfolio',
+  path: '/portfolio',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RetirementRoute = RetirementRouteImport.update({
+  id: '/retirement',
+  path: '/retirement',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TransactionsRoute = TransactionsRouteImport.update({
+  id: '/transactions',
+  path: '/transactions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountsIndexRoute = AccountsIndexRouteImport.update({
+  id: '/accounts/',
+  path: '/accounts/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountsAccountIdRoute = AccountsAccountIdRouteImport.update({
+  id: '/accounts/$accountId',
+  path: '/accounts/$accountId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/budgets': typeof BudgetsRoute
+  '/chat': typeof ChatRoute
+  '/goals': typeof GoalsRoute
+  '/net-worth': typeof NetWorthRoute
+  '/portfolio': typeof PortfolioRoute
+  '/retirement': typeof RetirementRoute
+  '/settings': typeof SettingsRoute
+  '/transactions': typeof TransactionsRoute
+  '/accounts/$accountId': typeof AccountsAccountIdRoute
+  '/accounts/': typeof AccountsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/budgets': typeof BudgetsRoute
+  '/chat': typeof ChatRoute
+  '/goals': typeof GoalsRoute
+  '/net-worth': typeof NetWorthRoute
+  '/portfolio': typeof PortfolioRoute
+  '/retirement': typeof RetirementRoute
+  '/settings': typeof SettingsRoute
+  '/transactions': typeof TransactionsRoute
+  '/accounts/$accountId': typeof AccountsAccountIdRoute
+  '/accounts': typeof AccountsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/budgets': typeof BudgetsRoute
+  '/chat': typeof ChatRoute
+  '/goals': typeof GoalsRoute
+  '/net-worth': typeof NetWorthRoute
+  '/portfolio': typeof PortfolioRoute
+  '/retirement': typeof RetirementRoute
+  '/settings': typeof SettingsRoute
+  '/transactions': typeof TransactionsRoute
+  '/accounts/$accountId': typeof AccountsAccountIdRoute
+  '/accounts/': typeof AccountsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about'
+  fullPaths:
+    | '/'
+    | '/about'
+    | '/budgets'
+    | '/chat'
+    | '/goals'
+    | '/net-worth'
+    | '/portfolio'
+    | '/retirement'
+    | '/settings'
+    | '/transactions'
+    | '/accounts/$accountId'
+    | '/accounts/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about'
-  id: '__root__' | '/' | '/about'
+  to:
+    | '/'
+    | '/about'
+    | '/budgets'
+    | '/chat'
+    | '/goals'
+    | '/net-worth'
+    | '/portfolio'
+    | '/retirement'
+    | '/settings'
+    | '/transactions'
+    | '/accounts/$accountId'
+    | '/accounts'
+  id:
+    | '__root__'
+    | '/'
+    | '/about'
+    | '/budgets'
+    | '/chat'
+    | '/goals'
+    | '/net-worth'
+    | '/portfolio'
+    | '/retirement'
+    | '/settings'
+    | '/transactions'
+    | '/accounts/$accountId'
+    | '/accounts/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
+  BudgetsRoute: typeof BudgetsRoute
+  ChatRoute: typeof ChatRoute
+  GoalsRoute: typeof GoalsRoute
+  NetWorthRoute: typeof NetWorthRoute
+  PortfolioRoute: typeof PortfolioRoute
+  RetirementRoute: typeof RetirementRoute
+  SettingsRoute: typeof SettingsRoute
+  TransactionsRoute: typeof TransactionsRoute
+  AccountsAccountIdRoute: typeof AccountsAccountIdRoute
+  AccountsIndexRoute: typeof AccountsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +202,92 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/budgets': {
+      id: '/budgets'
+      path: '/budgets'
+      fullPath: '/budgets'
+      preLoaderRoute: typeof BudgetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/goals': {
+      id: '/goals'
+      path: '/goals'
+      fullPath: '/goals'
+      preLoaderRoute: typeof GoalsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/net-worth': {
+      id: '/net-worth'
+      path: '/net-worth'
+      fullPath: '/net-worth'
+      preLoaderRoute: typeof NetWorthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/portfolio': {
+      id: '/portfolio'
+      path: '/portfolio'
+      fullPath: '/portfolio'
+      preLoaderRoute: typeof PortfolioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/retirement': {
+      id: '/retirement'
+      path: '/retirement'
+      fullPath: '/retirement'
+      preLoaderRoute: typeof RetirementRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/transactions': {
+      id: '/transactions'
+      path: '/transactions'
+      fullPath: '/transactions'
+      preLoaderRoute: typeof TransactionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/accounts/': {
+      id: '/accounts/'
+      path: '/accounts'
+      fullPath: '/accounts/'
+      preLoaderRoute: typeof AccountsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/accounts/$accountId': {
+      id: '/accounts/$accountId'
+      path: '/accounts/$accountId'
+      fullPath: '/accounts/$accountId'
+      preLoaderRoute: typeof AccountsAccountIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
+  BudgetsRoute: BudgetsRoute,
+  ChatRoute: ChatRoute,
+  GoalsRoute: GoalsRoute,
+  NetWorthRoute: NetWorthRoute,
+  PortfolioRoute: PortfolioRoute,
+  RetirementRoute: RetirementRoute,
+  SettingsRoute: SettingsRoute,
+  TransactionsRoute: TransactionsRoute,
+  AccountsAccountIdRoute: AccountsAccountIdRoute,
+  AccountsIndexRoute: AccountsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

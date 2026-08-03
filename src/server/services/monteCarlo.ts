@@ -68,7 +68,6 @@ export function runRetirementMonteCarlo(input: RetirementInput): RetirementResul
     let nominalWithdrawal = monthlyWithdrawal
     let cumulativeInflation = 1
     let shortfallAge: number | null = null
-    let survived = false
 
     percentiles[0]![sim] = balance
 
@@ -98,7 +97,6 @@ export function runRetirementMonteCarlo(input: RetirementInput): RetirementResul
       percentiles[month]![sim] = balance
     }
 
-    survived = balance > 0
     endingBalances[sim] = balance
     retirementBalances[sim] = percentiles[monthsToRetirement]![sim]
     shortfallAges[sim] = shortfallAge

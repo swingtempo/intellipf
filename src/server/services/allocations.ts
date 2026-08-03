@@ -94,19 +94,24 @@ export const stratamoreAllocationProvider: AllocationProvider = {
       const url = `${baseUrl}/v1/asset-allocation?ticker=${encodeURIComponent(ticker)}&apikey=${encodeURIComponent(key)}`
       const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
       if (!res.ok) return null
-      const data = (await res.json()) as
-        | { allocations: Array<{ asset_class: string; weight: number }> }
-        | { asset_class: string; weight: number }
-      if (Array.isArray(data?.allocations)) {
-        return data.allocations
+      const body = (await res.json()) as unknown
+      const allocations = (body as { allocations?: Array<{ asset_class: string; weight: number }> })?.allocations
+      if (Array.isArray(allocations)) {
+        return allocations
           .map((a) => ({
             assetClass: normalizeAssetClass(a.asset_class),
             weight: a.weight,
           }))
           .filter((a) => a.weight > 0)
       }
-      if (typeof data === 'object' && data && 'asset_class' in data) {
-        return [{ assetClass: normalizeAssetClass(data.asset_class), weight: data.weight }]
+      const single = body as { asset_class?: string; weight?: number }
+      if (typeof body === 'object' && body !== null && single.asset_class) {
+        return [
+          {
+            assetClass: normalizeAssetClass(single.asset_class),
+            weight: single.weight ?? 1,
+          },
+        ]
       }
       return null
     } catch {
@@ -180,12 +185,10 @@ export async function computePortfolioAllocation(
     const marketValue = price != null ? price * entry.quantity : 0
     totalValue += marketValue
     let allocations: AssetAllocation[] = []
-    let source = 'simulated'
     if (entry.ticker) {
       const result = await getAssetAllocation(entry.ticker)
       if (result) {
         allocations = result
-        source = 'provider'
       }
     }
     if (allocations.length === 0) {

@@ -8,13 +8,15 @@ import { uid } from '#/lib/utils'
 import { getEnv } from '#/lib/env'
 import { getDb, schema } from '../db'
 import { now } from '../db/schema'
+import type { AccountType } from '../db/schema'
+import type { CountryCode, Products } from 'plaid'
 
 function getPlaidConfig(): { client: PlaidApi; env: string } | null {
   const clientId = getEnv('PLAID_CLIENT_ID')
   const secret = getEnv('PLAID_SECRET')
   if (!clientId || !secret) return null
-  const env = (getEnv('PLAID_ENV') ?? 'sandbox') as keyof typeof PlaidEnvironments
-  const basePath = PlaidEnvironments[env] ?? PlaidEnvironments.sandbox
+  const env = String(getEnv('PLAID_ENV') ?? 'sandbox')
+  const basePath = (PlaidEnvironments as Record<string, string>)[env] ?? PlaidEnvironments.sandbox
   const client = new PlaidApi(
     new Configuration({
       basePath,
@@ -42,8 +44,8 @@ export async function createLinkToken(userId: string) {
     user: { client_user_id: userId },
     client_name: 'IntelliPF',
     language: 'en',
-    country_codes: ['US'],
-    products: ['transactions', 'investments', 'auth'],
+    country_codes: ['US'] as CountryCode[],
+    products: ['transactions', 'investments', 'auth'] as Products[],
     transactions: { days_requested: 730 },
   })
   return { linkToken: data.link_token, expiration: data.expiration }
@@ -56,12 +58,12 @@ export async function exchangePublicToken(userId: string, publicToken: string) {
   }
   const { data } = await cfg.client.itemPublicTokenExchange({ public_token: publicToken })
   const itemId = uid('item')
-  const institutionId = data.institution_id ?? null
+  const institutionId = (data as { institution_id?: string }).institution_id ?? null
   let institutionName: string | null = null
   try {
     const { data: institutionData } = await cfg.client.institutionsGetById({
       institution_id: institutionId ?? '',
-      country_codes: ['US'],
+      country_codes: ['US'] as CountryCode[],
     })
     institutionName = institutionData.institution.name ?? null
   } catch {
@@ -161,7 +163,7 @@ export async function fetchAccountsForItem(itemId: string) {
   return { accountCount: seenPlaidAccountIds.size }
 }
 
-function mapPlaidAccountType(type: string, subtype?: string | null) {
+function mapPlaidAccountType(type: string, subtype?: string | null): AccountType {
   const t = type.toLowerCase()
   if (t === 'depository' || t === 'credit' || t === 'loan' || t === 'insurance' || t === 'other') {
     return t
@@ -237,8 +239,8 @@ export async function syncTransactionsForItem(itemId: string) {
       access_token: item.accessToken,
       cursor,
     })
-    added = [...added, ...data.added]
-    modified = [...modified, ...data.modified]
+    added = [...added, ...(data.added as unknown as Array<Record<string, unknown>>)]
+    modified = [...modified, ...(data.modified as unknown as Array<Record<string, unknown>>)]
     removed = [...removed, ...data.removed]
     cursor = data.next_cursor
     hasMore = data.has_more
@@ -464,7 +466,11 @@ export async function syncAllPlaidForUser(userId: string) {
     .select()
     .from(schema.plaidItems)
     .where(eq(schema.plaidItems.userId, userId))
-  const results: Array<{ itemId: string; transactions?: ReturnType<typeof syncTransactionsForItem>; holdings?: unknown }> = []
+  const results: Array<{
+    itemId: string
+    transactions: { added: number; modified: number; removed: number }
+    holdings: { synced: boolean; holdings: number; reason?: string }
+  }> = []
   for (const item of items) {
     const transactions = await syncTransactionsForItem(item.id)
     const holdings = await syncInvestmentHoldingsForItem(item.id)

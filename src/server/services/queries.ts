@@ -1,7 +1,7 @@
-import { and, asc, between, desc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm'
 import { safeJsonParse } from '#/lib/utils'
-import { getDb, schema } from './db'
-import { computePortfolioAllocation } from './services/allocations'
+import { getDb, schema } from '../db'
+import { computePortfolioAllocation } from './allocations'
 
 export interface AccountWithBalance {
   id: string
@@ -143,7 +143,11 @@ export async function getTransactions(
     .offset(filters.offset ?? 0)
 
   return {
-    rows: rows.map((row) => ({ ...row, category: safeJsonParse(row.category, []) })),
+    rows: rows.map((row) => ({
+      ...row,
+      accountName: row.accountName ?? '',
+      category: safeJsonParse<string[]>(row.category, []),
+    })),
     total: Number(count),
   }
 }
@@ -158,7 +162,7 @@ export async function getDistinctCategories(userId: string): Promise<string[]> {
   const categories = new Set<string>()
   for (const row of rows) {
     if (!row.category) continue
-    const parsed = safeJsonParse(row.category, [])
+    const parsed = safeJsonParse<string[]>(row.category, [])
     if (Array.isArray(parsed)) {
       for (const cat of parsed) {
         if (typeof cat === 'string' && cat) categories.add(cat)
@@ -199,7 +203,6 @@ export async function getNetWorthSeries(
     .orderBy(asc(schema.balances.date))
 
   const snapshotsByAccount = new Map<string, Array<{ date: string; value: number }>>()
-  const isLiability = (type: string) => type === 'credit' || type === 'loan'
   for (const account of accounts) {
     snapshotsByAccount.set(account.id, [])
   }
@@ -360,7 +363,7 @@ export async function getSpendingByCategory(
 
   const spending = new Map<string, number>()
   for (const row of rows) {
-    const categories = safeJsonParse(row.category, [])
+    const categories = safeJsonParse<string[]>(row.category, [])
     const category = Array.isArray(categories) && typeof categories[0] === 'string' ? categories[0] : 'Uncategorized'
     spending.set(category, (spending.get(category) ?? 0) + row.amount)
   }
@@ -476,7 +479,7 @@ export interface DashboardData {
   monthlySpending: number
   monthlyIncome: number
   budgets: BudgetWithSpending[]
-  goals: Array<Record<string, unknown>>
+  goals: Array<typeof schema.goals.$inferSelect>
 }
 
 export async function getDashboardData(userId: string): Promise<DashboardData> {

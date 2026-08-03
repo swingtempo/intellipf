@@ -67,7 +67,6 @@ export function parseQif(content: string): ParsedQif {
         sections.push(currentSection)
         continue
       }
-      // unknown header like !Option:... just skip
       continue
     }
 
@@ -353,11 +352,9 @@ export async function importQif(input: ImportQifInput): Promise<ImportQifResult>
         const action = (record.fields['N'] ?? '').trim()
         const securityName = record.fields['Y']?.trim() || null
         const ticker = record.fields['L']?.trim() || null
-        const price = parseQifAmount(record.fields['I'] ?? '0')
         const quantity = parseQifAmount(record.fields['Q'] ?? '0')
 
         if (securityName && !INVESTMENT_ACTIONS.has(action) && quantity === 0) {
-          // security metadata only, no action
           await findOrCreateSecurity(ticker, securityName)
           continue
         }
@@ -396,7 +393,6 @@ export async function importQif(input: ImportQifInput): Promise<ImportQifResult>
         continue
       }
 
-      // Non-investment: splits become separate transactions
       if (record.splits.length > 0) {
         for (const split of record.splits) {
           if (split.amount == null || split.amount === 0) continue

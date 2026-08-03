@@ -144,7 +144,7 @@ export async function seedDatabase() {
         .where(and(eq(schema.budgets.userId, userId), eq(schema.budgets.month, month)))
         .limit(1)
       if (budgetRows.length === 0 && rand() > 0.4) {
-        for (const [group, sub] of EXPENSE_CATEGORIES.slice(0, 6)) {
+        for (const [, sub] of EXPENSE_CATEGORIES.slice(0, 6)) {
           const amount = sub === 'Rent' ? 1650 : sub === 'Restaurants' ? 320 : sub === 'Groceries' ? 480 : 120 + rand() * 220
           await db.insert(schema.budgets).values({
             id: uid('bud'), userId, category: sub, month, amount: round2(amount),
@@ -161,7 +161,7 @@ export async function seedDatabase() {
     if (!unique.has(key)) unique.set(key, [])
     unique.get(key)!.push(tx)
   }
-  for (const [, group] of unique) {
+  for (const group of unique.values()) {
     for (const tx of group.slice(0, 1)) {
       await db.insert(schema.transactions).values(tx)
     }

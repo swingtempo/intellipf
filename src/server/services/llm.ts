@@ -141,20 +141,17 @@ async function completeOpenAICompat(
 
   const message = response.choices[0]?.message
   const content =
-    typeof message?.content === 'string'
+    typeof message?.content === 'string' && message.content.length > 0
       ? message.content
-      : Array.isArray(message?.content)
-        ? message.content
-            .map((part) => (part.type === 'text' ? part.text : ''))
-            .filter(Boolean)
-            .join('\n') || null
-        : null
+      : null
 
-  const toolCalls: LlmToolCall[] = (message?.tool_calls ?? []).map((call) => ({
-    id: call.id ?? `tc_${Math.random().toString(36).slice(2)}`,
-    name: call.function?.name ?? '',
-    arguments: call.function?.arguments ?? '{}',
-  }))
+  const toolCalls: LlmToolCall[] = (message?.tool_calls ?? [])
+    .filter((call) => call.type === 'function')
+    .map((call) => ({
+      id: call.id ?? `tc_${Math.random().toString(36).slice(2)}`,
+      name: (call as { function: { name?: string } }).function?.name ?? '',
+      arguments: (call as { function: { arguments?: string } }).function?.arguments ?? '{}',
+    }))
 
   return { content, toolCalls, model: response.model ?? model, provider }
 }

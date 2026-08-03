@@ -3,10 +3,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { getEnv } from '#/lib/env'
 import * as schema from './schema'
 
-export type Db = ReturnType<typeof createDb>
+export type Db = BetterSQLite3Database<typeof schema>
 
 let db: Db | undefined
 
@@ -53,9 +54,13 @@ export function getDb(): Db {
   return db
 }
 
+export function getRawSqlClient() {
+  return (getDb() as unknown as { $client: Database.Database }).$client
+}
+
 export function resetDbForTests(): Db {
   if (db) {
-    db.$client.close()
+    getRawSqlClient().close()
     db = undefined
   }
   return getDb()

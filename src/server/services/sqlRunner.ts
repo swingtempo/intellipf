@@ -1,4 +1,4 @@
-import { getDb } from '../db'
+import { getRawSqlClient } from '../db'
 
 const ALLOWED_TABLES = new Set([
   'users',
@@ -18,7 +18,7 @@ const MAX_ROWS = 500
 
 export interface SqlQueryResult {
   columns: string[]
-  rows: Record<string, unknown>[]
+  rows: Array<Record<string, any>>
   rowCount: number
   truncated: boolean
 }
@@ -85,8 +85,8 @@ export function validateAndRunQuery(rawSql: string): SqlQueryResult {
 
   let stmt
   try {
-    const db = getDb()
-    stmt = db.$client.prepare(capped)
+    const raw = getRawSqlClient()
+    stmt = raw.prepare(capped)
   } catch (error) {
     throw new Error(`Invalid SQL: ${error instanceof Error ? error.message : String(error)}`)
   }
@@ -100,7 +100,7 @@ export function validateAndRunQuery(rawSql: string): SqlQueryResult {
     )
   }
 
-  const cleanRows = rows.slice(0, MAX_ROWS) as Record<string, unknown>[]
+  const cleanRows = rows.slice(0, MAX_ROWS) as Array<Record<string, any>>
   const columns =
     cleanRows.length > 0 ? Object.keys(cleanRows[0]!) : stmt.columns().map((c) => c.name)
 
