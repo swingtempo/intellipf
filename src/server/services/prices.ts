@@ -1,129 +1,95 @@
-import { getEnv } from '#/lib/env'
+import { eq, inArray } from 'drizzle-orm'
+import { getDb, schema } from '../db'
 
-export interface PriceQuote {
-  price: number
-  currency?: string
-  asOf?: string
-  source: string
-}
-
-export interface PriceProvider {
-  name: string
-  getPrice(ticker: string): Promise<PriceQuote | null>
-}
-
-function hashTicker(ticker: string): number {
-  let h = 2166136261
-  for (let i = 0; i < ticker.length; i++) {
-    h ^= ticker.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return h >>> 0
-}
-
-function seededRandom(seed: number): () => number {
-  let a = seed
-  return () => {
-    a |= 0
-    a = (a + 0x6d2b79f5) | 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-export const simulatedProvider: PriceProvider = {
-  name: 'simulated',
-  async getPrice(ticker) {
-    const seed = hashTicker(ticker.toUpperCase())
-    const rand = seededRandom(seed)
-    const base = 5 + rand() * 495
-    const drift = Math.sin(seed) * 0.25
-    return {
-      price: Math.round(base * (1 + drift) * 100) / 100,
-      currency: 'USD',
-      asOf: new Date().toISOString().slice(0, 10),
-      source: 'simulated',
-    }
-  },
-}
-
-export const finnhubProvider: PriceProvider = {
-  name: 'finnhub',
-  async getPrice(ticker) {
-    const key = getEnv('FINNHUB_API_KEY')
-    if (!key) return null
+async function fetchYahooPrices(tickers: string[]): Promise<Map<string, number>> {
+  const results = new Map<string, number>()
+  
+  for (const ticker of tickers) {
     try {
-      const res = await fetch(
-        `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(ticker)}&token=${encodeURIComponent(key)}`,
-        { signal: AbortSignal.timeout(8000) },
-      )
-      if (!res.ok) return null
-      const data = (await res.json()) as { c?: number }
-      if (typeof data.c !== 'number') return null
-      return {
-        price: data.c,
-        currency: 'USD',
-        asOf: new Date().toISOString().slice(0, 10),
-        source: 'finnhub',
+      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=1d&interval=1d`, {
+        headers: { 'User-Agent': 'IntelliPF/1.0' }
+      })
+      
+      if (!response.ok) continue
+      
+      const json = await response.json()
+      const meta = json?.chart?.result?.[0]?.meta
+      if (meta?.regularMarketPrice != null) {
+        results.set(ticker, Number(meta.regularMarketPrice))
       }
     } catch {
-      return null
+      // Skip failed requests
     }
-  },
+  }
+  
+  return results
 }
 
-export const alphaVantagePriceProvider: PriceProvider = {
-  name: 'alpha_vantage',
-  async getPrice(ticker) {
-    const key = getEnv('ALPHA_VANTAGE_API_KEY')
-    if (!key) return null
-    try {
-      const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(ticker)}&apikey=${encodeURIComponent(key)}`
-      const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
-      if (!res.ok) return null
-      const data = (await res.json()) as { 'Global Quote'?: Record<string, string> }
-      const quote = data['Global Quote']
-      if (!quote) return null
-      const price = Number(quote['05. price'])
-      if (!Number.isFinite(price)) return null
-      return {
-        price,
-        currency: 'USD',
-        asOf: quote['07. latest trading day'] ?? new Date().toISOString().slice(0, 10),
-        source: 'alpha_vantage',
-      }
-    } catch {
-      return null
-    }
-  },
-}
-
-function configuredProvider(): PriceProvider {
-  const name = getEnv('PRICE_PROVIDER') ?? 'simulated'
-  if (name === 'finnhub' && getEnv('FINNHUB_API_KEY')) return finnhubProvider
-  if (name === 'alpha_vantage' && getEnv('ALPHA_VANTAGE_API_KEY')) return alphaVantagePriceProvider
-  if (name === 'simulated') return simulatedProvider
-  return simulatedProvider
-}
-
-export async function getPrice(ticker: string): Promise<PriceQuote | null> {
-  const provider = configuredProvider()
-  const quote = await provider.getPrice(ticker)
-  if (quote) return quote
-  if (provider !== simulatedProvider) {
-    const fallback = await simulatedProvider.getPrice(ticker)
-    if (fallback) return { ...fallback, source: `simulated (fallback from ${provider.name})` }
+export async function getPrice(ticker: string): Promise<{ price: number } | null> {
+  const prices = await fetchYahooPrices([ticker])
+  const price = prices.get(ticker)
+  if (price != null) {
+    return { price }
   }
   return null
 }
 
-export async function refreshHoldingPrices(tickers: Array<{ ticker: string }>) {
-  const prices = new Map<string, PriceQuote>()
-  for (const { ticker } of tickers) {
-    if (!ticker || prices.has(ticker)) continue
-    const quote = await getPrice(ticker)
-    if (quote) prices.set(ticker, quote)
+export async function syncStockPrices(userId: string): Promise<{ updated: number; failed: number }> {
+  const db = getDb()
+  
+  const investmentAccounts = await db
+    .select({ id: schema.accounts.id })
+    .from(schema.accounts)
+    .where(eq(schema.accounts.userId, userId))
+  
+  if (investmentAccounts.length === 0) {
+    return { updated: 0, failed: 0 }
   }
-  return prices
+  
+  const accountIds = investmentAccounts.map((a) => a.id)
+  
+  const holdings = await db
+    .select({
+      id: schema.holdings.id,
+      securityId: schema.holdings.securityId,
+      ticker: schema.securities.ticker,
+    })
+    .from(schema.holdings)
+    .leftJoin(schema.securities, eq(schema.holdings.securityId, schema.securities.id))
+    .where(inArray(schema.holdings.accountId, accountIds))
+  
+  const tickers = [...new Set(holdings.map((h) => h.ticker).filter(Boolean))] as string[]
+  
+  if (tickers.length === 0) {
+    return { updated: 0, failed: 0 }
+  }
+  
+  const prices = await fetchYahooPrices(tickers)
+  
+  let updated = 0
+  let failed = 0
+  
+  for (const holding of holdings) {
+    if (!holding.ticker) continue
+    
+    const price = prices.get(holding.ticker)
+    if (price != null) {
+      try {
+        await db
+          .update(schema.holdings)
+          .set({ 
+            price,
+            priceAsOf: new Date().toISOString().slice(0, 10),
+          })
+          .where(eq(schema.holdings.id, holding.id))
+        updated++
+      } catch {
+        failed++
+      }
+    } else {
+      failed++
+    }
+  }
+  
+  return { updated, failed }
 }

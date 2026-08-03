@@ -112,12 +112,16 @@
     "totalValue": "Total value",
     "totalCost": "Total cost",
     "totalGain": "Total gain",
+    "return": "Return",
     "assetAllocation": "Asset allocation",
     "ticker": "Ticker",
     "quantity": "Quantity",
     "price": "Price",
+    "costBasis": "Cost basis",
     "marketValue": "Market value",
     "gain": "Gain",
+    "gainPercent": "Return %",
+    "syncPrices": "Sync prices",
     "noHoldings": "No investment holdings yet"
   },
   "retirement": {
