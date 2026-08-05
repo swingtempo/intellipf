@@ -1,4 +1,7 @@
+import { and, eq } from 'drizzle-orm'
+import { safeJsonParse } from '#/lib/utils'
 import { getEnv } from '#/lib/env'
+import { getDb, schema } from '../db'
 import { getPrice } from './prices'
 
 export type AssetClass =
@@ -131,7 +134,23 @@ function normalizeAssetClass(raw: string): AssetClass {
   return 'Other'
 }
 
-export async function getAssetAllocation(ticker: string): Promise<AssetAllocation[] | null> {
+export async function getAssetAllocation(
+  ticker: string,
+  userId?: string,
+): Promise<AssetAllocation[] | null> {
+  if (userId) {
+    const db = getDb()
+    const row = await db
+      .select()
+      .from(schema.securityAllocations)
+      .where(and(eq(schema.securityAllocations.ticker, ticker.toUpperCase()), eq(schema.securityAllocations.userId, userId)))
+      .limit(1)
+    if (row.length > 0) {
+      const parsed = safeJsonParse<AssetAllocation[]>(row[0].allocations, [])
+      if (parsed.length > 0) return parsed
+    }
+  }
+
   const alpha = getEnv('ALPHA_VANTAGE_API_KEY') ? alphaVantageAllocationProvider : null
   if (alpha) {
     const result = await alpha.getAssetAllocation(ticker)
@@ -143,6 +162,49 @@ export async function getAssetAllocation(ticker: string): Promise<AssetAllocatio
     if (result) return result
   }
   return simulatedAllocationProvider.getAssetAllocation(ticker)
+}
+
+export async function getUserAllocations(userId: string): Promise<Array<{ ticker: string; allocations: AssetAllocation[] }>> {
+  const db = getDb()
+  const rows = await db
+    .select({
+      ticker: schema.securityAllocations.ticker,
+      allocations: schema.securityAllocations.allocations,
+    })
+    .from(schema.securityAllocations)
+    .where(eq(schema.securityAllocations.userId, userId))
+
+  return rows.map((row) => ({
+    ticker: row.ticker,
+    allocations: safeJsonParse<AssetAllocation[]>(row.allocations, []),
+  })).filter((item) => item.allocations.length > 0)
+}
+
+export async function saveUserAllocation(
+  userId: string,
+  ticker: string,
+  allocations: AssetAllocation[],
+): Promise<void> {
+  const db = getDb()
+  await db
+    .insert(schema.securityAllocations)
+    .values({
+      id: crypto.randomUUID(),
+      userId,
+      ticker: ticker.toUpperCase().trim(),
+      allocations: JSON.stringify(allocations),
+    })
+    .onConflictDoUpdate({
+      target: [schema.securityAllocations.userId, schema.securityAllocations.ticker],
+      set: { allocations: JSON.stringify(allocations) },
+    })
+}
+
+export async function deleteUserAllocation(userId: string, ticker: string): Promise<void> {
+  const db = getDb()
+  await db
+    .delete(schema.securityAllocations)
+    .where(and(eq(schema.securityAllocations.userId, userId), eq(schema.securityAllocations.ticker, ticker.toUpperCase().trim())))
 }
 
 export interface PortfolioAllocationEntry {
@@ -160,7 +222,7 @@ export interface PortfolioAllocationResult {
   entries: PortfolioAllocationEntry[]
   totalValue: number
   assetClasses: Array<{ assetClass: AssetClass; value: number; weight: number }>
-  source: string
+  source: 'user_defined' | 'allocation_provider' | 'fallback'
 }
 
 export async function computePortfolioAllocation(
@@ -172,6 +234,7 @@ export async function computePortfolioAllocation(
     quantity: number
     price: number | null
   }>,
+  userId?: string,
 ): Promise<PortfolioAllocationResult> {
   const withValue: PortfolioAllocationEntry[] = []
   let totalValue = 0
@@ -184,16 +247,20 @@ export async function computePortfolioAllocation(
     }
     const marketValue = price != null ? price * entry.quantity : 0
     totalValue += marketValue
+
     let allocations: AssetAllocation[] = []
+
     if (entry.ticker) {
-      const result = await getAssetAllocation(entry.ticker)
+      const result = await getAssetAllocation(entry.ticker, userId)
       if (result) {
         allocations = result
       }
     }
+
     if (allocations.length === 0) {
       allocations = [{ assetClass: classifyTicker(entry.ticker ?? ''), weight: 1 }]
     }
+
     withValue.push({
       securityId: entry.securityId,
       ticker: entry.ticker ?? '',

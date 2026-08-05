@@ -218,6 +218,23 @@ export const holdings = sqliteTable(
   ],
 )
 
+export const securityAllocations = sqliteTable(
+  'security_allocations',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    ticker: text('ticker').notNull(),
+    allocations: text('allocations').notNull(),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (table) => [
+    uniqueIndex('security_allocations_user_ticker_unique').on(table.userId, table.ticker),
+    index('security_allocations_ticker_idx').on(table.ticker),
+  ],
+)
+
 export const budgets = sqliteTable(
   'budgets',
   {

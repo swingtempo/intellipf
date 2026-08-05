@@ -463,6 +463,7 @@ export async function getPortfolio(userId: string): Promise<{
         price: holding.price,
       }
     }),
+    userId,
   )
 
   return { holdings, totalValue, totalCost, allocations }
