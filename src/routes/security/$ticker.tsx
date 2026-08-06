@@ -62,6 +62,16 @@ const CLASS_COLORS: Record<string, string> = {
   Other: '#90a4ae',
 }
 
+const ASSET_CLASS_I18N: Record<string, string> = {
+  Equity: 'allocations.equity',
+  'Fixed Income': 'allocations.fixedIncome',
+  'Cash & Equivalents': 'allocations.cashAndEquivalents',
+  'Real Estate': 'allocations.realEstate',
+  Commodities: 'allocations.commodities',
+  Alternative: 'allocations.alternative',
+  Other: 'allocations.other',
+}
+
 function SecurityPricePage() {
   const { t } = useTranslation()
   const security = Route.useLoaderData()
@@ -164,7 +174,7 @@ function SecurityPricePage() {
                   className="inline-flex items-center rounded-full px-3 py-1 text-sm font-medium"
                   style={{ backgroundColor: `${CLASS_COLORS[alloc.assetClass.replace(/\s+/g, '')] ?? 'var(--lagoon-deep)'}1a`, color: CLASS_COLORS[alloc.assetClass.replace(/\s+/g, '')] ?? 'var(--lagoon-deep)' }}
                 >
-                  {alloc.assetClass} · {Math.round(alloc.weight * 100)}%
+                  {t(ASSET_CLASS_I18N[alloc.assetClass] ?? alloc.assetClass)} · {Math.round(alloc.weight * 100)}%
                   {alloc.source === 'user_defined' && (
                     <span className="ml-2 text-xs opacity-60">(custom)</span>
                   )}

@@ -219,6 +219,15 @@
     "llmConfigured": "Configured",
     "llmNotConfigured": "Not configured"
   },
+  "allocations": {
+    "equity": "Equity",
+    "fixedIncome": "Fixed Income",
+    "cashAndEquivalents": "Cash & Equivalents",
+    "realEstate": "Real Estate",
+    "commodities": "Commodities",
+    "alternative": "Alternative",
+    "other": "Other"
+  },
   "about": {
     "title": "About IntelliPF",
     "subtitle": "A self-hosted, intelligent personal finance dashboard",

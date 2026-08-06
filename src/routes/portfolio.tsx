@@ -31,15 +31,16 @@ const CLASS_COLORS: Record<string, string> = {
   Other: '#90a4ae',
 }
 
-const ASSET_CLASSES: Array<{ value: string; label: string }> = [
-  { value: 'Equity', label: 'Equity' },
-  { value: 'Fixed Income', label: 'Fixed Income' },
-  { value: 'Cash & Equivalents', label: 'Cash & Equivalents' },
-  { value: 'Real Estate', label: 'Real Estate' },
-  { value: 'Commodities', label: 'Commodities' },
-  { value: 'Alternative', label: 'Alternative' },
-  { value: 'Other', label: 'Other' },
-]
+const ASSET_CLASS_KEYS = ['Equity', 'Fixed Income', 'Cash & Equivalents', 'Real Estate', 'Commodities', 'Alternative', 'Other'] as const
+const ASSET_CLASS_I18N: Record<string, string> = {
+  Equity: 'allocations.equity',
+  'Fixed Income': 'allocations.fixedIncome',
+  'Cash & Equivalents': 'allocations.cashAndEquivalents',
+  'Real Estate': 'allocations.realEstate',
+  Commodities: 'allocations.commodities',
+  Alternative: 'allocations.alternative',
+  Other: 'allocations.other',
+}
 
 function PortfolioPage() {
   const { t } = useTranslation()
@@ -243,7 +244,7 @@ function PortfolioPage() {
           ) : (
             <DonutChart
               data={data.allocations.assetClasses.map((a) => ({
-                label: a.assetClass,
+                label: t(ASSET_CLASS_I18N[a.assetClass] ?? a.assetClass),
                 value: a.value,
                 color: CLASS_COLORS[a.assetClass] ?? 'var(--lagoon-deep)',
               }))}
@@ -329,7 +330,7 @@ function PortfolioPage() {
                                 className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap"
                                 style={{ backgroundColor: `${CLASS_COLORS[alloc.assetClass] ?? 'var(--lagoon-deep)'}1a`, color: CLASS_COLORS[alloc.assetClass] ?? 'var(--lagoon-deep)' }}
                               >
-                                {alloc.assetClass} · {Math.round(alloc.weight * 100)}%
+                                {t(ASSET_CLASS_I18N[alloc.assetClass] ?? alloc.assetClass)} · {Math.round(alloc.weight * 100)}%
                               </span>
                             ))}
                           </div>
@@ -423,8 +424,8 @@ function PortfolioPage() {
                           onChange={(e) => updateAllocation(ticker, idx, e.target.value as AssetAllocationType['assetClass'])}
                           className="h-9 flex-1 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2 text-sm text-[var(--sea-ink)]"
                         >
-                          {ASSET_CLASSES.map((c) => (
-                            <option key={c.value} value={c.value}>{c.label}</option>
+                          {ASSET_CLASS_KEYS.map((key) => (
+                            <option key={key} value={key}>{t(ASSET_CLASS_I18N[key])}</option>
                           ))}
                         </select>
                         <input
