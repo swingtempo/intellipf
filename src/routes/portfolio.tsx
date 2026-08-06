@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { PieChart as PieIcon, RefreshCw, Settings2 } from 'lucide-react'
 import { getPortfolioData, syncStockPrices } from '#/server/api/portfolio'
-import { getSecurityAllocations, updateSecurityAllocation, deleteSecurityAllocation } from '#/server/api/allocations'
+import { getSecurityAllocations, updateSecurityAllocation, deleteSecurityAllocation, syncAssetAllocationsFn } from '#/server/api/allocations'
 import type { AssetAllocation as AssetAllocationType } from '#/server/services/allocations'
 import { PageHeader } from '../components/page-header'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -47,8 +47,10 @@ function PortfolioPage() {
   const data = Route.useLoaderData()
   const [syncing, setSyncing] = useState(false)
   const [allocDialogOpen, setAllocDialogOpen] = useState(false)
+  const [syncingAllocations, setSyncingAllocations] = useState(false)
   const [customAllocations, setCustomAllocations] = useState<Map<string, AssetAllocation[]>>(new Map())
   const [savingTicker, setSavingTicker] = useState<string | null>(null)
+  const [syncMessage, setSyncMessage] = useState('')
 
   const totalGain = data.totalValue - data.totalCost
   const gainPercent = data.totalCost > 0 ? totalGain / data.totalCost : null
@@ -156,6 +158,24 @@ function PortfolioPage() {
       await loadCustomAllocations()
     } catch {
       // ignore
+    }
+  }
+
+  async function handleSyncAllocations() {
+    setSyncingAllocations(true)
+    setSyncMessage('')
+    try {
+      const tickers = Array.from(new Set(data.holdings.map((h) => h.ticker).filter(Boolean))) as string[]
+      const result = await syncAssetAllocationsFn({ data: { tickers } })
+      if (result.synced > 0) {
+        setSyncMessage(t('portfolio.allocationsSynced', { count: result.synced }))
+        await loadCustomAllocations()
+        await router.invalidate()
+      } else {
+        setSyncMessage(t('portfolio.noProvidersAvailable'))
+      }
+    } finally {
+      setSyncingAllocations(false)
     }
   }
 
@@ -284,7 +304,22 @@ function PortfolioPage() {
         {data.holdings.length === 0 ? (
           <p className="text-[var(--sea-ink-soft)]">{t('portfolio.noCustomAllocations')}</p>
         ) : (
-          <div className="space-y-4">
+          <>
+            <div className="flex items-center justify-between">
+              <Button
+                size="sm"
+                loading={syncingAllocations}
+                onClick={handleSyncAllocations}
+                variant="outline"
+              >
+                <RefreshCw className={`h-4 w-4 ${syncingAllocations ? 'animate-spin' : ''}`} />
+                {syncingAllocations ? t('portfolio.syncingAllocations') : t('portfolio.syncAllocations')}
+              </Button>
+              {syncMessage && (
+                <span className="text-sm text-[var(--lagoon-deep)]">{syncMessage}</span>
+              )}
+            </div>
+            <div className="space-y-4">
             {Array.from(new Set(data.holdings.map((h) => h.ticker))).map((ticker) => {
               const upper = ticker?.toUpperCase() ?? ''
               if (!upper) return null
@@ -368,6 +403,7 @@ function PortfolioPage() {
               )
             })}
           </div>
+    </>
         )}
       </Dialog>
     </main>

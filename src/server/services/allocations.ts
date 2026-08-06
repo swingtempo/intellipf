@@ -207,6 +207,20 @@ export async function deleteUserAllocation(userId: string, ticker: string): Prom
     .where(and(eq(schema.securityAllocations.userId, userId), eq(schema.securityAllocations.ticker, ticker.toUpperCase().trim())))
 }
 
+export async function syncAssetAllocations(userId: string, tickers: string[]): Promise<number> {
+  const synced = new Set<string>()
+  for (const ticker of tickers) {
+    const upper = ticker.toUpperCase().trim()
+    if (!upper || synced.has(upper)) continue
+    const result = await getAssetAllocation(ticker, userId)
+    if (result && result.length > 0) {
+      await saveUserAllocation(userId, upper, result)
+      synced.add(upper)
+    }
+  }
+  return synced.size
+}
+
 export interface PortfolioAllocationEntry {
   securityId: string
   ticker: string

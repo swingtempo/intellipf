@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { ensureUserScoped } from '../user'
-import { getUserAllocations, saveUserAllocation, deleteUserAllocation } from '../services/allocations'
+import { getUserAllocations, saveUserAllocation, deleteUserAllocation, syncAssetAllocations } from '../services/allocations'
 
 const allocationSchema = z.object({
   assetClass: z.enum(['Equity', 'Fixed Income', 'Cash & Equivalents', 'Real Estate', 'Commodities', 'Alternative', 'Other']),
@@ -27,4 +27,12 @@ export const deleteSecurityAllocation = createServerFn({ method: 'POST' })
     const userId = await ensureUserScoped()
     await deleteUserAllocation(userId, data.ticker)
     return { success: true }
+  })
+
+export const syncAssetAllocationsFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ tickers: z.array(z.string()) }))
+  .handler(async ({ data }) => {
+    const userId = await ensureUserScoped()
+    const count = await syncAssetAllocations(userId, data.tickers)
+    return { synced: count }
   })

@@ -138,8 +138,12 @@
     "addAllocation": "Add Allocation",
     "removeAllocation": "Remove",
     "resetToDefault": "Reset to Default",
+    "syncAllocations": "Sync Allocations",
+    "syncingAllocations": "Syncing...",
     "saved": "Allocation saved",
-    "deleted": "Allocation deleted"
+    "deleted": "Allocation deleted",
+    "allocationsSynced": "{{count}} allocation(s) synced from providers",
+    "noProvidersAvailable": "No allocation providers available to sync"
   },
   "retirement": {
     "title": "Retirement Planner",
