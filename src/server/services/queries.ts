@@ -383,14 +383,25 @@ export interface PortfolioHolding {
   costBasis: number | null
   gain: number | null
   gainPercent: number | null
+  priceSource: 'yahoo_finance' | 'simulated' | null
 }
 
-export async function getPortfolio(userId: string): Promise<{
+export interface PriceSourceBreakdown {
+  yahoo_finance: number
+  simulated: number
+}
+
+export interface PortfolioData {
   holdings: PortfolioHolding[]
   totalValue: number
   totalCost: number
   allocations: Awaited<ReturnType<typeof computePortfolioAllocation>>
-}> {
+  allocationsUpdatedAt: string | null
+  priceLastSyncedAt: string | null
+  priceSourceBreakdown: PriceSourceBreakdown | null
+}
+
+export async function getPortfolio(userId: string): Promise<PortfolioData> {
   const db = getDb()
   const accounts = await db
     .select()
@@ -408,6 +419,9 @@ export async function getPortfolio(userId: string): Promise<{
       totalValue: 0,
       totalCost: 0,
       allocations: { entries: [], totalValue: 0, assetClasses: [], source: 'allocation_provider' },
+      allocationsUpdatedAt: null,
+      priceLastSyncedAt: null,
+      priceSourceBreakdown: null,
     }
   }
 
@@ -424,6 +438,20 @@ export async function getPortfolio(userId: string): Promise<{
   const accountById = new Map(accounts.map((a) => [a.id, a]))
   const securityById = new Map(securities.map((s) => [s.id, s]))
 
+  // Build a map of ticker → latest stock price date for source tracking
+  const latestPrices = await db
+    .select({ ticker: schema.stockPrices.ticker, date: schema.stockPrices.date })
+    .from(schema.stockPrices)
+    .where(inArray(schema.stockPrices.ticker, [...new Set(holdingsRows.map((h) => securityById.get(h.securityId)?.ticker ?? '').filter(Boolean))]))
+    .orderBy(desc(schema.stockPrices.date))
+
+  const priceDateByTicker = new Map<string, string>()
+  for (const row of latestPrices) {
+    if (!priceDateByTicker.has(row.ticker)) {
+      priceDateByTicker.set(row.ticker, row.date)
+    }
+  }
+
   const holdings: PortfolioHolding[] = holdingsRows.map((holding) => {
     const security = securityById.get(holding.securityId)
     const price = holding.price ?? null
@@ -432,11 +460,12 @@ export async function getPortfolio(userId: string): Promise<{
     const gain = costBasis != null ? marketValue - costBasis : null
     const gainPercent = gain != null && costBasis != null && costBasis > 0 ? gain / costBasis : null
     const account = accountById.get(holding.accountId)
+    const ticker = security?.ticker
     return {
       accountId: holding.accountId,
       accountName: account?.name ?? '',
       securityId: holding.securityId,
-      ticker: security?.ticker ?? '',
+      ticker: ticker ?? '',
       name: security?.name ?? null,
       type: security?.type ?? 'other',
       quantity: holding.quantity,
@@ -445,28 +474,55 @@ export async function getPortfolio(userId: string): Promise<{
       costBasis,
       gain,
       gainPercent,
+      priceSource: ticker ? (priceDateByTicker.has(ticker) ? 'yahoo_finance' : null) : null,
     }
   })
+
+  const [allocResult, allocMeta, priceMeta] = await Promise.all([
+    computePortfolioAllocation(
+      holdingsRows.map((holding) => {
+        const security = securityById.get(holding.securityId)
+        return {
+          securityId: holding.securityId,
+          ticker: security?.ticker ?? null,
+          name: security?.name ?? null,
+          type: security?.type ?? 'other',
+          quantity: holding.quantity,
+          price: holding.price,
+        }
+      }),
+      userId,
+    ),
+    db
+      .select({ updatedAt: schema.securityAllocations.updatedAt })
+      .from(schema.securityAllocations)
+      .where(eq(schema.securityAllocations.userId, userId))
+      .orderBy(desc(schema.securityAllocations.updatedAt))
+      .limit(1),
+    db
+      .select({ date: schema.stockPrices.date })
+      .from(schema.stockPrices)
+      .where(inArray(schema.stockPrices.ticker, [...new Set(holdingsRows.map((h) => securityById.get(h.securityId)?.ticker ?? '').filter(Boolean))]))
+      .orderBy(desc(schema.stockPrices.date))
+      .limit(1),
+  ])
 
   const totalValue = holdings.reduce((sum, h) => sum + h.marketValue, 0)
   const totalCost = holdings.reduce((sum, h) => sum + (h.costBasis ?? 0), 0)
 
-  const allocations = await computePortfolioAllocation(
-    holdingsRows.map((holding) => {
-      const security = securityById.get(holding.securityId)
-      return {
-        securityId: holding.securityId,
-        ticker: security?.ticker ?? null,
-        name: security?.name ?? null,
-        type: security?.type ?? 'other',
-        quantity: holding.quantity,
-        price: holding.price,
-      }
-    }),
-    userId,
-  )
+  const allTickers = new Set(holdings.map((h) => h.ticker).filter(Boolean))
+  const yahooTickerCount = [...allTickers].filter((t) => t && priceDateByTicker.has(t)).length
+  const simulatedTickerCount = allTickers.size - yahooTickerCount
 
-  return { holdings, totalValue, totalCost, allocations }
+  return {
+    holdings,
+    totalValue,
+    totalCost,
+    allocations: allocResult,
+    allocationsUpdatedAt: allocMeta[0]?.updatedAt ?? null,
+    priceLastSyncedAt: priceMeta[0]?.date ?? null,
+    priceSourceBreakdown: yahooTickerCount > 0 ? { yahoo_finance: yahooTickerCount, simulated: simulatedTickerCount } : null,
+  }
 }
 
 export interface DashboardData {

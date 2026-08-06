@@ -230,6 +230,7 @@ export interface PortfolioAllocationEntry {
   price: number | null
   marketValue: number
   allocations: AssetAllocation[]
+  source: 'user_defined' | 'allocation_provider' | 'fallback'
 }
 
 export interface PortfolioAllocationResult {
@@ -263,11 +264,32 @@ export async function computePortfolioAllocation(
     totalValue += marketValue
 
     let allocations: AssetAllocation[] = []
+    let source: PortfolioAllocationEntry['source'] = 'fallback'
 
     if (entry.ticker) {
+      const db = getDb()
+      const row = await db
+        .select()
+        .from(schema.securityAllocations)
+        .where(and(eq(schema.securityAllocations.ticker, entry.ticker.toUpperCase()), eq(schema.securityAllocations.userId, userId!)))
+        .limit(1)
+      if (row.length > 0) {
+        const parsed = safeJsonParse<AssetAllocation[]>(row[0].allocations, [])
+        if (parsed.length > 0) {
+          allocations = parsed
+          source = 'user_defined'
+        }
+      }
+    }
+
+    if (allocations.length === 0 && entry.ticker) {
+      const hasRealProviders = Boolean(getEnv('ALPHA_VANTAGE_API_KEY')) || Boolean(getEnv('STRATAMORE_API_KEY'))
       const result = await getAssetAllocation(entry.ticker, userId)
-      if (result) {
+      if (result && result.length > 0) {
         allocations = result
+        // Only mark as allocation_provider if a real provider was used;
+        // when no API keys are configured the simulated classifier is just a fallback.
+        source = hasRealProviders ? 'allocation_provider' : 'fallback'
       }
     }
 
@@ -284,6 +306,7 @@ export async function computePortfolioAllocation(
       price,
       marketValue,
       allocations,
+      source,
     })
   }
 
@@ -303,10 +326,14 @@ export async function computePortfolioAllocation(
     }))
     .sort((a, b) => b.value - a.value)
 
+  const dominantSource = (['user_defined', 'allocation_provider', 'fallback'] as const).find((s) =>
+    withValue.some((e) => e.source === s),
+  ) ?? 'fallback'
+
   return {
     entries: withValue,
     totalValue,
     assetClasses,
-    source: 'allocation_provider',
+    source: dominantSource,
   }
 }

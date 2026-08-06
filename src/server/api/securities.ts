@@ -1,13 +1,19 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { ensureUserScoped } from '../user'
 import { getDb, schema } from '../db'
 import { fetchYahooPrices } from '../services/prices'
+import { safeJsonParse } from '#/lib/utils'
 
 export interface SecurityPricePoint {
   date: string
   price: number
+}
+
+export interface AssetAllocation {
+  assetClass: string
+  weight: number
 }
 
 export interface SecurityDetail {
@@ -19,6 +25,7 @@ export interface SecurityDetail {
   industry?: string
   latestPrice?: number
   priceHistory: SecurityPricePoint[]
+  allocations?: Array<AssetAllocation & { source: 'user_defined' | 'api_provider' }>
 }
 
 export const getSecurityDetail = createServerFn({ method: 'GET' })
@@ -31,6 +38,8 @@ export const getSecurityDetail = createServerFn({ method: 'GET' })
     await ensureUserScoped()
     const db = getDb()
     const ticker = data.ticker.toUpperCase()
+
+    const userId = (await ensureUserScoped()) ?? ''
 
     let security = await db
       .select()
@@ -82,6 +91,20 @@ export const getSecurityDetail = createServerFn({ method: 'GET' })
       }
     }
 
+    // Fetch stored allocation for this user
+    const allocRow = await db
+      .select()
+      .from(schema.securityAllocations)
+      .where(and(eq(schema.securityAllocations.ticker, ticker), eq(schema.securityAllocations.userId, userId)))
+      .limit(1)
+    let allocations: SecurityDetail['allocations'] = undefined
+    if (allocRow.length > 0) {
+      const parsed = safeJsonParse<AssetAllocation[]>(allocRow[0].allocations, [])
+      if (parsed.length > 0) {
+        allocations = parsed.map((a) => ({ ...a, source: 'user_defined' }))
+      }
+    }
+
     return {
       ticker,
       name: security?.[0]?.name,
@@ -91,5 +114,6 @@ export const getSecurityDetail = createServerFn({ method: 'GET' })
       industry: security?.[0]?.industry,
       latestPrice,
       priceHistory: priceRows.map((r) => ({ date: r.date, price: r.price })),
+      allocations,
     } as SecurityDetail
   })

@@ -144,6 +144,11 @@
     "deleted": "Allocation deleted",
     "allocationsSynced": "{{count}} allocation(s) synced from providers",
     "noProvidersAvailable": "No allocation providers available to sync",
+    "lastAllocationsSync": "Allocations: {date}",
+    "lastPricesSync": "Prices: {date}",
+    "allocations": "Allocations",
+    "priceYahoo": "{count} from Yahoo Finance",  
+    "priceSimulated": "{count} simulated",
     "priceHistory": "Price History",
     "viewChart": "View Chart"
   },

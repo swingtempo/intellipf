@@ -13,7 +13,7 @@ import { Table, TBody, TD, TH, THead, TR } from '../components/ui/table'
 import { EmptyState } from '../components/ui/empty-state'
 import { Button } from '../components/ui/button'
 import { Dialog } from '../components/ui/dialog'
-import { formatCurrency, formatPercent } from '#/lib/format'
+import { formatCurrency, formatDate, formatPercent } from '#/lib/format'
 import type { AssetAllocation } from '#/server/services/allocations'
 
 export const Route = createFileRoute('/portfolio')({
@@ -194,6 +194,30 @@ function PortfolioPage() {
         </div>
       </PageHeader>
 
+      {data.allocationsUpdatedAt || data.priceLastSyncedAt || data.priceSourceBreakdown ? (
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm text-[var(--sea-ink-soft)]">
+          {data.allocationsUpdatedAt && (
+            <span>{t('portfolio.lastAllocationsSync', { date: formatDate(data.allocationsUpdatedAt) })}</span>
+          )}
+          {data.allocationsUpdatedAt && data.priceLastSyncedAt && <span className="text-[var(--line)]">·</span>}
+          {data.priceLastSyncedAt && (
+            <span>{t('portfolio.lastPricesSync', { date: formatDate(data.priceLastSyncedAt) })}</span>
+          )}
+          {data.priceSourceBreakdown && data.priceSourceBreakdown.yahoo_finance > 0 && (
+            <span className="ml-auto flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-full bg-[var(--lagoon-deep)]" />
+              {t('portfolio.priceYahoo', { count: data.priceSourceBreakdown.yahoo_finance })}
+            </span>
+          )}
+          {data.priceSourceBreakdown && data.priceSourceBreakdown.simulated > 0 && (
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-full bg-[var(--sea-ink-soft)]" />
+              {t('portfolio.priceSimulated', { count: data.priceSourceBreakdown.simulated })}
+            </span>
+          )}
+        </div>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label={t('portfolio.totalValue')} value={formatCurrency(data.totalValue)} icon={PieIcon} />
         <StatCard label={t('portfolio.totalCost')} value={formatCurrency(data.totalCost)} />
@@ -249,18 +273,20 @@ function PortfolioPage() {
                   <TH className="text-right">{t('portfolio.marketValue')}</TH>
                   <TH className="text-right">{t('portfolio.gain')}</TH>
                   <TH className="text-right">{t('portfolio.gainPercent')}</TH>
+                  <TH>{t('portfolio.allocations')}</TH>
+                  <TH>{t('portfolio.allocationSource')}</TH>
                 </TR>
               </THead>
               <TBody>
                 {data.holdings.map((holding) => (
                   <TR key={`${holding.accountId}-${holding.securityId}`}>
-                    <TD>
+                    <TD className="whitespace-nowrap">
                       <Link
                         to="/security/$ticker"
                         params={{ ticker: holding.ticker ?? '' }}
                         className="inline-flex items-center gap-2 no-underline"
                       >
-                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[rgba(79,184,178,0.14)] text-xs font-bold text-[var(--lagoon-deep)]">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[rgba(79,184,178,0.14)] text-xs font-bold text-[var(--lagoon-deep)]">
                           {(holding.ticker || '?').slice(0, 3).toUpperCase()}
                         </span>
                         <span className="font-bold hover:text-[var(--lagoon-deep)]">{holding.ticker || '—'}</span>
@@ -290,6 +316,41 @@ function PortfolioPage() {
                       ) : (
                         '—'
                       )}
+                    </TD>
+                    <TD className="align-top">
+                      {(() => {
+                        const entry = data.allocations.entries.find((e) => e.securityId === holding.securityId)
+                        if (!entry || entry.allocations.length === 0) return null
+                        return (
+                          <div className="flex flex-wrap gap-1">
+                            {entry.allocations.map((alloc, idx) => (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap"
+                                style={{ backgroundColor: `${CLASS_COLORS[alloc.assetClass] ?? 'var(--lagoon-deep)'}1a`, color: CLASS_COLORS[alloc.assetClass] ?? 'var(--lagoon-deep)' }}
+                              >
+                                {alloc.assetClass} · {Math.round(alloc.weight * 100)}%
+                              </span>
+                            ))}
+                          </div>
+                        )
+                      })()}
+                    </TD>
+                    <TD>
+                      {(() => {
+                        const entry = data.allocations.entries.find((e) => e.securityId === holding.securityId)
+                        if (!entry) return null
+                        const labels: Record<string, string> = {
+                          user_defined: t('portfolio.userDefined'),
+                          allocation_provider: t('portfolio.apiProvider'),
+                          fallback: t('portfolio.fallback'),
+                        }
+                        return (
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium" style={{ backgroundColor: entry.source === 'user_defined' ? 'rgba(79,184,178,0.14)' : entry.source === 'allocation_provider' ? 'rgba(245,166,35,0.14)' : 'rgba(144,164,174,0.14)', color: entry.source === 'user_defined' ? 'var(--lagoon-deep)' : entry.source === 'allocation_provider' ? '#f5a623' : 'var(--sea-ink-soft)' }}>
+                            {labels[entry.source]}
+                          </span>
+                        )
+                      })()}
                     </TD>
                   </TR>
                 ))}

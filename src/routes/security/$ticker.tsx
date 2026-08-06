@@ -9,7 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Badge } from '../../components/ui/badge'
 import { EmptyState } from '../../components/ui/empty-state'
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table'
-import { LineChart, RangeSelector } from '../../components/charts/line-chart'
+import { LineChart } from '../../components/charts/line-chart'
+import type { ChartRange as ImportedChartRange } from '../../components/charts/line-chart'
 import { formatCurrency, formatDate, titleCase } from '#/lib/format'
 
 export const Route = createFileRoute('/security/$ticker')({
@@ -21,9 +22,10 @@ export const Route = createFileRoute('/security/$ticker')({
   component: SecurityPricePage,
 })
 
-type ChartRange = '1M' | '3M' | '6M' | 'YTD' | '1Y' | 'All'
+type ChartRange = '1W' | ImportedChartRange
 
 const RANGE_DAYS: Record<ChartRange, number> = {
+  '1W': 7,
   '1M': 30,
   '3M': 90,
   '6M': 180,
@@ -47,14 +49,23 @@ function filterByRange(data: Array<{ date: string; price: number }>, range: Char
 function formatChartLabel(dateStr: string): string {
   const d = parseISO(dateStr)
   if (Number.isNaN(d.getTime())) return dateStr
-  // Show year only when spanning multiple years — handled by the chart component
   return format(d, 'MM/dd')
+}
+
+const CLASS_COLORS: Record<string, string> = {
+  Equity: 'var(--lagoon-deep)',
+  FixedIncome: 'var(--palm)',
+  CashEquivalents: 'var(--coral)',
+  RealEstate: '#f5a623',
+  Commodities: '#8d6e63',
+  Alternative: '#9c27b0',
+  Other: '#90a4ae',
 }
 
 function SecurityPricePage() {
   const { t } = useTranslation()
   const security = Route.useLoaderData()
-  const [range, setRange] = useState<ChartRange>('3M')
+  const [range, setRange] = useState<ChartRange>('1W')
 
   const latestPrice = security.latestPrice
   const priceHistory = security.priceHistory
@@ -108,7 +119,21 @@ function SecurityPricePage() {
           <div className="flex items-center justify-between">
             <CardTitle>{t('portfolio.priceHistory')}</CardTitle>
             {priceHistory.length > 0 && (
-              <RangeSelector value={range} onChange={setRange} />
+              <div className="inline-flex rounded-lg border border-[var(--line)] p-0.5 text-xs font-medium">
+                {(Object.keys(RANGE_DAYS) as ChartRange[]).map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => setRange(opt)}
+                    className={`rounded-md px-3 py-1 transition-colors ${
+                      range === opt
+                        ? 'bg-[var(--lagoon-deep)] text-white'
+                        : 'text-[var(--sea-ink-soft)] hover:bg-[var(--surface-visited)]'
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </CardHeader>
@@ -125,6 +150,30 @@ function SecurityPricePage() {
           )}
         </CardContent>
       </Card>
+
+      {security.allocations && security.allocations.length > 0 && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>{t('portfolio.assetAllocation')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {security.allocations.map((alloc, idx) => (
+                <span
+                  key={idx}
+                  className="inline-flex items-center rounded-full px-3 py-1 text-sm font-medium"
+                  style={{ backgroundColor: `${CLASS_COLORS[alloc.assetClass.replace(/\s+/g, '')] ?? 'var(--lagoon-deep)'}1a`, color: CLASS_COLORS[alloc.assetClass.replace(/\s+/g, '')] ?? 'var(--lagoon-deep)' }}
+                >
+                  {alloc.assetClass} · {Math.round(alloc.weight * 100)}%
+                  {alloc.source === 'user_defined' && (
+                    <span className="ml-2 text-xs opacity-60">(custom)</span>
+                  )}
+                </span>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="mt-6">
         <CardHeader>
