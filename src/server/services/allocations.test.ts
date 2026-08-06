@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest'
-import { classifyTicker } from '#/server/services/allocations'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import Database from 'better-sqlite3'
+import { drizzle } from 'drizzle-orm/better-sqlite3'
+import * as schema from '#/server/db/schema'
+import { classifyTicker, syncAssetAllocations, yahooFinanceAllocationProvider } from '#/server/services/allocations'
 
 describe('classifyTicker', () => {
   describe('Equity tickers', () => {
@@ -178,5 +181,104 @@ describe('classifyTicker', () => {
     it('VNQI is Real Estate (not Equity via length<=5 and ends with I not X)', () => {
       expect(classifyTicker('VNQI')).toBe('Real Estate')
     })
+  })
+})
+
+function createTestDb() {
+  const sqlite = new Database(':memory:')
+  sqlite.pragma('journal_mode = WAL')
+  sqlite.pragma('foreign_keys = OFF')
+  sqlite.exec(`
+    CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT, email TEXT UNIQUE, created_at TEXT DEFAULT 'now');
+    CREATE TABLE securities (id TEXT PRIMARY KEY, ticker TEXT UNIQUE, name TEXT, type TEXT DEFAULT 'stock', currency TEXT DEFAULT 'USD', sector TEXT, industry TEXT, updated_at TEXT DEFAULT 'now');
+    CREATE TABLE stock_prices (id TEXT PRIMARY KEY, ticker TEXT NOT NULL, date TEXT NOT NULL, price REAL NOT NULL, created_at TEXT DEFAULT 'now', UNIQUE(ticker, date));
+    CREATE TABLE security_allocations (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, ticker TEXT NOT NULL, allocations TEXT NOT NULL, updated_at TEXT DEFAULT 'now', UNIQUE(user_id, ticker));
+  `)
+  return sqlite
+}
+
+const syncTestDb = createTestDb()
+const syncDbInstance = drizzle(syncTestDb, { schema })
+vi.mock('#/server/db', () => ({ getDb: () => syncDbInstance, schema }))
+
+beforeEach(() => {
+  syncTestDb.exec('DELETE FROM security_allocations')
+  syncTestDb.exec('DELETE FROM stock_prices')
+  vi.restoreAllMocks()
+})
+
+describe('syncAssetAllocations', () => {
+  it('fetches from Yahoo Finance when no Alpha Vantage key is set', async () => {
+    const userId = 'user-yf-1'
+    // Mock Yahoo chart endpoint to return ETF data
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        chart: { result: [{ meta: { instrumentType: 'ETF', longName: 'Vanguard Total Stock Market ETF', shortName: 'VTI' } }] },
+      }),
+    }))
+
+    const result = await syncAssetAllocations(userId, ['VTI'])
+
+    expect(result).toBe(1)
+    const row = syncTestDb.prepare('SELECT allocations FROM security_allocations WHERE user_id = ? AND ticker = ?').get(userId, 'VTI') as { allocations: string } | undefined
+    expect(row).toBeDefined()
+    const parsed = JSON.parse(row!.allocations) as Array<{ assetClass: string; weight: number }>
+    expect(parsed[0].assetClass).toBe('Equity')
+  })
+
+  it('preserves existing allocation when all providers fail', async () => {
+    const userId = 'user-fail-1'
+    syncTestDb.prepare(
+      `INSERT INTO security_allocations (id, user_id, ticker, allocations) VALUES (?, ?, ?, ?)`,
+    ).run(crypto.randomUUID(), userId, 'AAPL', JSON.stringify([{ assetClass: 'Equity', weight: 1 }]))
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network error')))
+
+    await syncAssetAllocations(userId, ['AAPL'])
+
+    const row = syncTestDb.prepare('SELECT allocations FROM security_allocations WHERE user_id = ? AND ticker = ?').get(userId, 'AAPL') as { allocations: string } | undefined
+    expect(row).toBeDefined()
+    const parsed = JSON.parse(row!.allocations) as Array<{ assetClass: string; weight: number }>
+    expect(parsed[0].assetClass).toBe('Equity')
+  })
+})
+
+describe('yahooFinanceAllocationProvider', () => {
+  it('classifies an equity ETF as Equity by default', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ chart: { result: [{ meta: { instrumentType: 'ETF', longName: 'SPDR S&P 500 ETF Trust' } }] } }),
+    }))
+
+    const result = await yahooFinanceAllocationProvider.getAssetAllocation('SPY')
+    expect(result).toEqual([{ assetClass: 'Equity', weight: 1, detail: 'SPDR S&P 500 ETF Trust' }])
+  })
+
+  it('classifies a bond ETF as Fixed Income', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ chart: { result: [{ meta: { instrumentType: 'ETF', longName: 'Vanguard Total Bond Market ETF' } }] } }),
+    }))
+
+    const result = await yahooFinanceAllocationProvider.getAssetAllocation('BND')
+    expect(result).toEqual([{ assetClass: 'Fixed Income', weight: 1, detail: 'Vanguard Total Bond Market ETF' }])
+  })
+
+  it('classifies a gold ETF as Commodities', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ chart: { result: [{ meta: { instrumentType: 'ETF', longName: 'SPDR Gold Shares' } }] } }),
+    }))
+
+    const result = await yahooFinanceAllocationProvider.getAssetAllocation('GLD')
+    expect(result).toEqual([{ assetClass: 'Commodities', weight: 1, detail: 'SPDR Gold Shares' }])
+  })
+
+  it('returns null when the Yahoo endpoint fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network error')))
+
+    const result = await yahooFinanceAllocationProvider.getAssetAllocation('AAPL')
+    expect(result).toBeNull()
   })
 })

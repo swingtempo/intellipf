@@ -87,34 +87,111 @@ export const alphaVantageAllocationProvider: AllocationProvider = {
   },
 }
 
-export const stratamoreAllocationProvider: AllocationProvider = {
-  name: 'stratamore',
+interface YahooChartMeta {
+  instrumentType?: string
+  longName?: string
+  shortName?: string
+  symbol?: string
+}
+
+export const yahooFinanceAllocationProvider: AllocationProvider = {
+  name: 'yahoo_finance',
   async getAssetAllocation(ticker) {
-    const key = getEnv('STRATAMORE_API_KEY')
-    const baseUrl = getEnv('STRATAMORE_BASE_URL') ?? 'https://api.stratamore.com'
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=5d&interval=1d`
+      const res = await fetch(url, { headers: { 'User-Agent': 'IntelliPF/1.0' }, signal: AbortSignal.timeout(10000) })
+      if (!res.ok) return null
+      const json = (await res.json()) as { chart?: { result: Array<{ meta: YahooChartMeta }> } }
+      const meta = json?.chart?.result?.[0]?.meta
+      if (!meta) return null
+
+      const name = (meta.longName ?? meta.shortName ?? '').toLowerCase()
+      const type = (meta.instrumentType ?? '').toLowerCase()
+
+      let assetClass: AssetClass
+      if (type === 'etf') {
+        // ETFs are typically equity unless the name indicates otherwise.
+        if (name.includes('bond') || name.includes('fixed income') || name.includes('treasury') || name.includes('note')) {
+          assetClass = 'Fixed Income'
+        } else if (name.includes('real estate') || name.includes('reit')) {
+          assetClass = 'Real Estate'
+        } else if (name.includes('gold') || name.includes('silver') || name.includes('commod') || name.includes('oil') || name.includes('energy')) {
+          assetClass = 'Commodities'
+        } else if (name.includes('bitcoin') || name.includes('crypto') || name.includes('btc') || name.includes('eth')) {
+          assetClass = 'Alternative'
+        } else if (name.includes('cash') || name.includes('money market') || name.includes('treasury bill') || name.includes('bil')) {
+          assetClass = 'Cash & Equivalents'
+        } else {
+          assetClass = 'Equity'
+        }
+      } else if (type === 'equity' || type === '') {
+        // For individual stocks, use sector to infer allocation.
+        const stockMeta = await fetchStockSector(ticker)
+        const sector = (stockMeta?.sector ?? '').toLowerCase()
+        if (sector.includes('real estate')) {
+          assetClass = 'Real Estate'
+        } else if (sector.includes('bond') || sector.includes('fixed') || sector.includes('financial')) {
+          // Financial sector stocks are equity, not fixed income.
+          assetClass = 'Equity'
+        } else {
+          assetClass = 'Equity'
+        }
+      } else {
+        // Unknown type — fall through to simulated classifier in caller.
+        return null
+      }
+      return [{ assetClass, weight: 1, detail: meta.longName ?? meta.shortName }]
+    } catch {
+      return null
+    }
+  },
+}
+
+interface YahooSearchResult {
+  symbol?: string
+  shortName?: string
+  quoteType?: string
+  sector?: string
+  industry?: string
+}
+
+async function fetchStockSector(ticker: string): Promise<{ sector?: string } | null> {
+  try {
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}`
+    const res = await fetch(url, { headers: { 'User-Agent': 'IntelliPF/1.0' }, signal: AbortSignal.timeout(8000) })
+    if (!res.ok) return null
+    const json = (await res.json()) as { quotes?: YahooSearchResult[] }
+    const quote = json?.quotes?.[0]
+    return { sector: quote?.sector }
+  } catch {
+    return null
+  }
+}
+
+interface DealChartsResponse {
+  allocations?: Array<{ asset_class: string; weight: number }>
+  asset_class?: string
+  weight?: number
+}
+
+export const dealChartsAllocationProvider: AllocationProvider = {
+  name: 'dealcharts',
+  async getAssetAllocation(ticker) {
+    const key = getEnv('DEALCHARTS_API_KEY')
     if (!key) return null
     try {
+      const baseUrl = getEnv('DEALCHARTS_BASE_URL') ?? 'https://api.dealcharts.com'
       const url = `${baseUrl}/v1/asset-allocation?ticker=${encodeURIComponent(ticker)}&apikey=${encodeURIComponent(key)}`
       const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
       if (!res.ok) return null
-      const body = (await res.json()) as unknown
-      const allocations = (body as { allocations?: Array<{ asset_class: string; weight: number }> })?.allocations
-      if (Array.isArray(allocations)) {
-        return allocations
-          .map((a) => ({
-            assetClass: normalizeAssetClass(a.asset_class),
-            weight: a.weight,
-          }))
+      const body = (await res.json()) as DealChartsResponse
+      if (Array.isArray(body.allocations)) {
+        return body.allocations
+          .map((a) => ({ assetClass: normalizeAssetClass(a.asset_class), weight: a.weight }))
           .filter((a) => a.weight > 0)
       }
-      const single = body as { asset_class?: string; weight?: number }
-      if (typeof body === 'object' && body !== null && single.asset_class) {
-        return [
-          {
-            assetClass: normalizeAssetClass(single.asset_class),
-            weight: single.weight ?? 1,
-          },
-        ]
+      if (typeof body === 'object' && body !== null && body.asset_class) {
+        return [{ assetClass: normalizeAssetClass(body.asset_class), weight: body.weight ?? 1 }]
       }
       return null
     } catch {
@@ -156,9 +233,13 @@ export async function getAssetAllocation(
     const result = await alpha.getAssetAllocation(ticker)
     if (result) return result
   }
-  const strat = getEnv('STRATAMORE_API_KEY') ? stratamoreAllocationProvider : null
-  if (strat) {
-    const result = await strat.getAssetAllocation(ticker)
+  // Yahoo Finance works without an API key.
+  const yahoo = yahooFinanceAllocationProvider
+  const yahooResult = await yahoo.getAssetAllocation(ticker)
+  if (yahooResult) return yahooResult
+  const dealcharts = getEnv('DEALCHARTS_API_KEY') ? dealChartsAllocationProvider : null
+  if (dealcharts) {
+    const result = await dealcharts.getAssetAllocation(ticker)
     if (result) return result
   }
   return simulatedAllocationProvider.getAssetAllocation(ticker)
@@ -209,10 +290,24 @@ export async function deleteUserAllocation(userId: string, ticker: string): Prom
 
 export async function syncAssetAllocations(userId: string, tickers: string[]): Promise<number> {
   const synced = new Set<string>()
+  const hasRealProviders = Boolean(getEnv('ALPHA_VANTAGE_API_KEY')) || Boolean(getEnv('DEALCHARTS_API_KEY'))
+
   for (const ticker of tickers) {
     const upper = ticker.toUpperCase().trim()
     if (!upper || synced.has(upper)) continue
-    const result = await getAssetAllocation(ticker, userId)
+
+    // Fetch directly from providers without reading the DB so we always get fresh data.
+    let result: AssetAllocation[] | null = null
+    if (hasRealProviders) {
+      const alpha = getEnv('ALPHA_VANTAGE_API_KEY') ? await alphaVantageAllocationProvider.getAssetAllocation(ticker) : null
+      result =
+        alpha ??
+        (await yahooFinanceAllocationProvider.getAssetAllocation(ticker)) ??
+        (getEnv('DEALCHARTS_API_KEY') ? await dealChartsAllocationProvider.getAssetAllocation(ticker) : null)
+    } else {
+      result = await simulatedAllocationProvider.getAssetAllocation(ticker)
+    }
+
     if (result && result.length > 0) {
       await saveUserAllocation(userId, upper, result)
       synced.add(upper)
@@ -283,7 +378,7 @@ export async function computePortfolioAllocation(
     }
 
     if (allocations.length === 0 && entry.ticker) {
-      const hasRealProviders = Boolean(getEnv('ALPHA_VANTAGE_API_KEY')) || Boolean(getEnv('STRATAMORE_API_KEY'))
+      const hasRealProviders = Boolean(getEnv('ALPHA_VANTAGE_API_KEY')) || Boolean(getEnv('DEALCHARTS_API_KEY'))
       const result = await getAssetAllocation(entry.ticker, userId)
       if (result && result.length > 0) {
         allocations = result

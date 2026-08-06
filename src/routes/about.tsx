@@ -65,7 +65,7 @@ export function AboutPage() {
             <li>Plaid API</li>
             <li>react-i18next internationalization</li>
             <li>OpenAI / Anthropic / OpenRouter LLM providers</li>
-            <li>Finnhub, Alpha Vantage, and Stratamore data providers</li>
+            <li>Finnhub, Alpha Vantage, Yahoo Finance, and DealCharts data providers</li>
           </ul>
         </CardContent>
       </Card>
