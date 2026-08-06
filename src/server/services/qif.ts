@@ -37,6 +37,7 @@ export function parseQif(content: string): ParsedQif {
   let currentRecord: QifRecord | null = null
   let accountDef: QifAccountDef | null = null
   let inAccountSection = false
+  let currentSplitIndex = -1
 
   const flushRecord = () => {
     if (currentRecord) {
@@ -94,31 +95,27 @@ export function parseQif(content: string): ParsedQif {
 
     if (!currentRecord) {
       currentRecord = { fields: {}, splits: [] }
+      currentSplitIndex = -1
     }
 
     switch (code) {
       case 'S': {
-        const splits = currentRecord.splits
-        if (splits.length > 0 && splits[splits.length - 1]?.category == null && splits[splits.length - 1]?.amount == null) {
-          splits[splits.length - 1].category = value
-        } else {
-          splits.push({ category: value })
-        }
+        currentSplitIndex++
+        currentRecord.splits.push({ category: value })
         break
       }
       case '$': {
-        const splits = currentRecord.splits
-        if (splits.length > 0 && splits[splits.length - 1]?.amount == null) {
-          splits[splits.length - 1].amount = parseQifAmount(value)
+        if (currentSplitIndex >= 0 && currentSplitIndex < currentRecord.splits.length) {
+          currentRecord.splits[currentSplitIndex].amount = parseQifAmount(value)
         } else {
-          splits.push({ amount: parseQifAmount(value) })
+          currentRecord.splits.push({ amount: parseQifAmount(value) })
+          currentSplitIndex = currentRecord.splits.length - 1
         }
         break
       }
       case 'E': {
-        const splits = currentRecord.splits
-        if (splits.length > 0 && splits[splits.length - 1]?.memo == null) {
-          splits[splits.length - 1].memo = value
+        if (currentSplitIndex >= 0 && currentSplitIndex < currentRecord.splits.length) {
+          currentRecord.splits[currentSplitIndex].memo = value
         }
         break
       }
@@ -149,12 +146,27 @@ export function parseQifAmount(raw: string): number {
   return Number.isFinite(num) ? num * sign : 0
 }
 
-const DATE_FORMATS = ['yyyy-MM-dd', 'MM/dd/yyyy', 'MM/dd/yy', "MM/dd'yy", 'M/d/yyyy', 'M/d/yy', 'MM/dd', 'M/d']
+const DATE_FORMATS = ['yyyy-MM-dd', 'MM/dd/yyyy', "MM/dd'yyyy", 'M/d/yyyy', 'M/d/yy', 'MM/dd', 'M/d']
 
 export function parseQifDate(raw: string): string | null {
   if (!raw) return null
   const value = raw.trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+
+  // Handle MM/dd/yy and M/d/yy with manual year expansion (date-fns v4 doesn't expand 2-digit years)
+  const shortYearMatch = /^(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])[\/'](\d{2})$/.exec(value)
+  if (shortYearMatch) {
+    const month = String(parseInt(shortYearMatch[1], 10)).padStart(2, '0')
+    const day = String(parseInt(shortYearMatch[2], 10)).padStart(2, '0')
+    let year = parseInt(shortYearMatch[3], 10)
+    if (year >= 70) {
+      year += 1900
+    } else {
+      year += 2000
+    }
+    return `${year}-${month}-${day}`
+  }
+
   for (const fmt of DATE_FORMATS) {
     const parsed = parse(value, fmt, new Date())
     if (!Number.isNaN(parsed.getTime())) {

@@ -64,9 +64,50 @@ export function validateAndRunQuery(rawSql: string): SqlQueryResult {
   }
   const withoutSemicolon = sql.replace(/;\s*$/, '')
 
+  // Detect semicolons that are not trailing.
+  if (/;/.test(withoutSemicolon)) {
+    throw new Error('Only a single SQL statement is allowed.')
+  }
+
+  // Strip CTE definitions before extracting table names, and collect CTE aliases to exclude.
+  let queryForTableCheck = withoutSemicolon
+  const cteAliases = new Set<string>()
+
+  const withMatch = queryForTableCheck.match(/^\s*WITH\s+/i)
+  if (withMatch) {
+    // Find all "alias AS (" patterns in the WITH clause.
+    const afterWith = queryForTableCheck.slice(withMatch.index! + withMatch[0]!.length)
+    let remaining = afterWith
+    while (remaining.length > 0) {
+      const aliasM = remaining.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(/i)
+      if (!aliasM) break
+      cteAliases.add(aliasM[1]!.toLowerCase())
+
+      // Skip past the CTE body (balanced parens).
+      let depth = 1
+      let i = aliasM[0]!.length
+      while (i < remaining.length && depth > 0) {
+        if (remaining[i] === '(') depth++
+        else if (remaining[i] === ')') depth--
+        i++
+      }
+      remaining = remaining.slice(i)
+
+      // Check for comma-separated CTEs.
+      if (remaining.startsWith(',')) {
+        remaining = remaining.slice(1)
+      } else {
+        break
+      }
+    }
+    queryForTableCheck = remaining.trim()
+  }
+
   const referencedTables = Array.from(
-    withoutSemicolon.matchAll(/\b(?:from|join)\s+["`']?([a-zA-Z_][a-zA-Z0-9_]*)/gi),
-  ).map((match) => match[1]!.toLowerCase())
+    queryForTableCheck.matchAll(/\b(?:from|join)\s+["`']?([a-zA-Z_][a-zA-Z0-9_]*)/gi),
+  )
+    .map((match) => match[1]!.toLowerCase())
+    .filter((table) => !cteAliases.has(table))
 
   for (const table of referencedTables) {
     if (!ALLOWED_TABLES.has(table)) {
