@@ -159,9 +159,6 @@ function PortfolioPage() {
                         params={{ ticker: holding.ticker ?? '' }}
                         className="inline-flex items-center gap-2 no-underline"
                       >
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[rgba(79,184,178,0.14)] text-xs font-bold text-[var(--lagoon-deep)]">
-                          {(holding.ticker || '?').slice(0, 3).toUpperCase()}
-                        </span>
                         <span className="font-bold hover:text-[var(--lagoon-deep)]">{holding.ticker || '—'}</span>
                       </Link>
                     </TD>

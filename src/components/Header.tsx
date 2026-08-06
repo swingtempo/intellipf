@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Settings2, Wallet } from 'lucide-react'
+import { Settings, Wallet } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import ThemeToggle from './ThemeToggle'
 
@@ -55,7 +55,7 @@ export default function Header() {
             title={t('nav.settings')}
           >
             <span className="flex items-center gap-1">
-              <Settings2 className="h-4 w-4" />
+              <Settings className="h-4 w-4" />
               <span className="sm:hidden">{t('nav.settings')}</span>
             </span>
           </Link>

@@ -219,7 +219,7 @@ function SecurityPricePage() {
                   <button
                     key={opt}
                     onClick={() => setRange(opt)}
-                    className={`rounded-md px-3 py-1 transition-colors ${
+                    className={`rounded-md cursor-pointer px-3 py-1 transition-colors ${
                       range === opt
                         ? 'bg-[var(--lagoon-deep)] text-white'
                         : 'text-[var(--sea-ink-soft)] hover:bg-[var(--surface-visited)]'
