@@ -1,4 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
+import { useState } from 'react'
+import { format, parseISO } from 'date-fns'
 import { useTranslation } from 'react-i18next'
 import { ArrowDownRight, ArrowUpRight, ChevronLeft } from 'lucide-react'
 import { getSecurityDetail } from '#/server/api/securities'
@@ -7,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Badge } from '../../components/ui/badge'
 import { EmptyState } from '../../components/ui/empty-state'
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table'
-import { LineChart } from '../../components/charts/line-chart'
+import { LineChart, RangeSelector } from '../../components/charts/line-chart'
 import { formatCurrency, formatDate, titleCase } from '#/lib/format'
 
 export const Route = createFileRoute('/security/$ticker')({
@@ -19,20 +21,52 @@ export const Route = createFileRoute('/security/$ticker')({
   component: SecurityPricePage,
 })
 
+type ChartRange = '1M' | '3M' | '6M' | 'YTD' | '1Y' | 'All'
+
+const RANGE_DAYS: Record<ChartRange, number> = {
+  '1M': 30,
+  '3M': 90,
+  '6M': 180,
+  YTD: Infinity,
+  '1Y': 365,
+  All: Infinity,
+}
+
+function filterByRange(data: Array<{ date: string; price: number }>, range: ChartRange): Array<{ date: string; price: number }> {
+  if (range === 'All') return data
+  const days = RANGE_DAYS[range]
+  const cutoff = new Date()
+  if (range === 'YTD') {
+    cutoff.setFullYear(new Date().getFullYear(), 0, 1)
+  } else {
+    cutoff.setDate(cutoff.getDate() - days)
+  }
+  return data.filter((p) => parseISO(p.date) >= cutoff)
+}
+
+function formatChartLabel(dateStr: string): string {
+  const d = parseISO(dateStr)
+  if (Number.isNaN(d.getTime())) return dateStr
+  // Show year only when spanning multiple years — handled by the chart component
+  return format(d, 'MM/dd')
+}
+
 function SecurityPricePage() {
   const { t } = useTranslation()
   const security = Route.useLoaderData()
+  const [range, setRange] = useState<ChartRange>('3M')
 
   const latestPrice = security.latestPrice
   const priceHistory = security.priceHistory
+  const visiblePrices = filterByRange(priceHistory, range)
 
-  const chartData = priceHistory.map((p) => ({
-    label: formatDate(p.date, 'MMM d'),
+  const chartData = visiblePrices.map((p) => ({
+    label: p.date,
     price: p.price,
   }))
 
-  const firstPrice = priceHistory[0]?.price
-  const lastPrice = priceHistory[priceHistory.length - 1]?.price
+  const firstPrice = visiblePrices[0]?.price
+  const lastPrice = visiblePrices[visiblePrices.length - 1]?.price
   const change = firstPrice && lastPrice ? lastPrice - firstPrice : null
   const changePercent = firstPrice ? (change ?? 0) / firstPrice : null
 
@@ -71,7 +105,12 @@ function SecurityPricePage() {
 
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle>{t('portfolio.priceHistory')}</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>{t('portfolio.priceHistory')}</CardTitle>
+            {priceHistory.length > 0 && (
+              <RangeSelector value={range} onChange={setRange} />
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {priceHistory.length === 0 ? (
@@ -81,6 +120,7 @@ function SecurityPricePage() {
               data={chartData}
               series={[{ key: 'price', name: t('portfolio.price'), color: 'var(--lagoon-deep)' }]}
               formatValue={(v) => formatCurrency(v, security.currency)}
+              formatLabel={formatChartLabel}
             />
           )}
         </CardContent>
@@ -88,7 +128,7 @@ function SecurityPricePage() {
 
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle>{t('portfolio.priceHistory')} — {priceHistory.length} {t('common.dates')}</CardTitle>
+          <CardTitle>{t('portfolio.priceHistory')} — {priceHistory.length} records</CardTitle>
         </CardHeader>
         <CardContent>
           {priceHistory.length === 0 ? (
