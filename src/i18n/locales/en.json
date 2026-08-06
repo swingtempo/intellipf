@@ -155,7 +155,13 @@
   "security": {
     "title": "Security Detail",
     "noPriceData": "No price data available yet",
-    "fetchingPrices": "Fetching prices..."
+    "fetchingPrices": "Fetching prices...",
+    "editAllocation": "Edit Allocation",
+    "syncAllocations": "Sync Allocations",
+    "saved": "Allocation saved",
+    "resetToDefault": "Reset to Default",
+    "addAllocation": "Add Allocation",
+    "removeAllocation": "Remove"
   },
   "retirement": {
     "title": "Retirement Planner",

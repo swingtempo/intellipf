@@ -1,10 +1,8 @@
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { PieChart as PieIcon, RefreshCw, Settings2 } from 'lucide-react'
+import { PieChart as PieIcon, RefreshCw } from 'lucide-react'
 import { getPortfolioData, syncStockPrices } from '#/server/api/portfolio'
-import { getSecurityAllocations, updateSecurityAllocation, deleteSecurityAllocation, syncAssetAllocationsFn } from '#/server/api/allocations'
-import type { AssetAllocation as AssetAllocationType } from '#/server/services/allocations'
 import { PageHeader } from '../components/page-header'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { StatCard } from '../components/ui/stat-card'
@@ -12,9 +10,7 @@ import { DonutChart } from '../components/charts/donut-chart'
 import { Table, TBody, TD, TH, THead, TR } from '../components/ui/table'
 import { EmptyState } from '../components/ui/empty-state'
 import { Button } from '../components/ui/button'
-import { Dialog } from '../components/ui/dialog'
 import { formatCurrency, formatDate, formatPercent } from '#/lib/format'
-import type { AssetAllocation } from '#/server/services/allocations'
 
 export const Route = createFileRoute('/portfolio')({
   loader: () => getPortfolioData(),
@@ -31,7 +27,6 @@ const CLASS_COLORS: Record<string, string> = {
   Other: '#90a4ae',
 }
 
-const ASSET_CLASS_KEYS = ['Equity', 'Fixed Income', 'Cash & Equivalents', 'Real Estate', 'Commodities', 'Alternative', 'Other'] as const
 const ASSET_CLASS_I18N: Record<string, string> = {
   Equity: 'allocations.equity',
   'Fixed Income': 'allocations.fixedIncome',
@@ -47,11 +42,6 @@ function PortfolioPage() {
   const router = useRouter()
   const data = Route.useLoaderData()
   const [syncing, setSyncing] = useState(false)
-  const [allocDialogOpen, setAllocDialogOpen] = useState(false)
-  const [syncingAllocations, setSyncingAllocations] = useState(false)
-  const [customAllocations, setCustomAllocations] = useState<Map<string, AssetAllocation[]>>(new Map())
-  const [savingTicker, setSavingTicker] = useState<string | null>(null)
-  const [syncMessage, setSyncMessage] = useState('')
 
   const totalGain = data.totalValue - data.totalCost
   const gainPercent = data.totalCost > 0 ? totalGain / data.totalCost : null
@@ -66,128 +56,10 @@ function PortfolioPage() {
     }
   }
 
-  async function loadCustomAllocations() {
-    const result = await getSecurityAllocations()
-    const map = new Map<string, AssetAllocation[]>()
-    for (const item of result) {
-      if (item.allocations.length > 0) {
-        map.set(item.ticker.toUpperCase(), item.allocations)
-      }
-    }
-    setCustomAllocations(map)
-  }
-
-  function getEffectiveAllocations(ticker: string): AssetAllocation[] {
-    const upper = ticker.toUpperCase()
-    if (customAllocations.has(upper)) {
-      return customAllocations.get(upper)!
-    }
-    // Find from portfolio entries
-    for (const entry of data.allocations.entries) {
-      if (entry.ticker === upper) {
-        return entry.allocations
-      }
-    }
-    return []
-  }
-
-  function updateAllocation(ticker: string, index: number, assetClass: AssetAllocationType['assetClass']) {
-    const upper = ticker.toUpperCase()
-    setCustomAllocations((prev) => {
-      const next = new Map(prev)
-      const allocations = next.get(upper) ?? getEffectiveAllocations(ticker)
-      const updated = [...allocations]
-      updated[index] = { ...updated[index], assetClass }
-      next.set(upper, updated)
-      return next
-    })
-  }
-
-  function addAllocation(ticker: string) {
-    const upper = ticker.toUpperCase()
-    setCustomAllocations((prev) => {
-      const next = new Map(prev)
-      const allocations = next.get(upper) ?? getEffectiveAllocations(ticker)
-      next.set(upper, [...allocations, { assetClass: 'Equity', weight: 1 }])
-      return next
-    })
-  }
-
-  function removeAllocation(ticker: string, index: number) {
-    const upper = ticker.toUpperCase()
-    setCustomAllocations((prev) => {
-      const next = new Map(prev)
-      const allocations = next.get(upper) ?? getEffectiveAllocations(ticker)
-      if (allocations.length <= 1) {
-        next.delete(upper)
-      } else {
-        next.set(upper, allocations.filter((_, i) => i !== index))
-      }
-      return next
-    })
-  }
-
-  function updateWeight(ticker: string, index: number, weight: number) {
-    const upper = ticker.toUpperCase()
-    setCustomAllocations((prev) => {
-      const next = new Map(prev)
-      const allocations = next.get(upper) ?? getEffectiveAllocations(ticker)
-      const updated = [...allocations]
-      updated[index] = { ...updated[index], weight }
-      next.set(upper, updated)
-      return next
-    })
-  }
-
-  async function handleSaveAllocation(ticker: string) {
-    const upper = ticker.toUpperCase()
-    const allocations = customAllocations.get(upper)
-    if (!allocations || allocations.length === 0) return
-    setSavingTicker(upper)
-    try {
-      await updateSecurityAllocation({ data: { ticker: upper, allocations } })
-      await loadCustomAllocations()
-    } finally {
-      setSavingTicker(null)
-    }
-  }
-
-  async function handleDeleteAllocation(ticker: string) {
-    const upper = ticker.toUpperCase()
-    try {
-      await deleteSecurityAllocation({ data: { ticker: upper } })
-      await loadCustomAllocations()
-    } catch {
-      // ignore
-    }
-  }
-
-  async function handleSyncAllocations() {
-    setSyncingAllocations(true)
-    setSyncMessage('')
-    try {
-      const tickers = Array.from(new Set(data.holdings.map((h) => h.ticker).filter(Boolean))) as string[]
-      const result = await syncAssetAllocationsFn({ data: { tickers } })
-      if (result.synced > 0) {
-        setSyncMessage(t('portfolio.allocationsSynced', { count: result.synced }))
-        await loadCustomAllocations()
-        await router.invalidate()
-      } else {
-        setSyncMessage(t('portfolio.noProvidersAvailable'))
-      }
-    } finally {
-      setSyncingAllocations(false)
-    }
-  }
-
   return (
     <main className="page-wrap px-4 pb-16 pt-8">
       <PageHeader title={t('portfolio.title')} subtitle={t('portfolio.subtitle')}>
         <div className="flex gap-2">
-          <Button onClick={() => { loadCustomAllocations(); setAllocDialogOpen(true) }} variant="outline" disabled={!data.holdings.length}>
-            <Settings2 className="h-4 w-4" />
-            {t('portfolio.manageAllocations')}
-          </Button>
           <Button onClick={handleSync} loading={syncing} variant="outline" disabled={!data.holdings.length}>
             <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
             {t('portfolio.syncPrices')}
@@ -360,118 +232,6 @@ function PortfolioPage() {
           )}
         </CardContent>
       </Card>
-
-      <Dialog
-        open={allocDialogOpen}
-        onClose={() => setAllocDialogOpen(false)}
-        title={t('portfolio.manageTitle')}
-        className="max-w-2xl"
-      >
-        {data.holdings.length === 0 ? (
-          <p className="text-[var(--sea-ink-soft)]">{t('portfolio.noCustomAllocations')}</p>
-        ) : (
-          <>
-            <div className="flex items-center justify-between">
-              <Button
-                size="sm"
-                loading={syncingAllocations}
-                onClick={handleSyncAllocations}
-                variant="outline"
-              >
-                <RefreshCw className={`h-4 w-4 ${syncingAllocations ? 'animate-spin' : ''}`} />
-                {syncingAllocations ? t('portfolio.syncingAllocations') : t('portfolio.syncAllocations')}
-              </Button>
-              {syncMessage && (
-                <span className="text-sm text-[var(--lagoon-deep)]">{syncMessage}</span>
-              )}
-            </div>
-            <div className="space-y-4">
-            {Array.from(new Set(data.holdings.map((h) => h.ticker))).map((ticker) => {
-              const upper = ticker?.toUpperCase() ?? ''
-              if (!upper) return null
-              const allocations = customAllocations.get(upper) ?? getEffectiveAllocations(ticker)
-              const isCustom = customAllocations.has(upper)
-
-              return (
-                <div key={upper} className="rounded-xl border border-[var(--line)] p-4">
-                  <div className="mb-3 flex items-center justify-between">
-                    <div>
-                      <span className="font-bold">{upper}</span>
-                      {isCustom && (
-                        <span className="ml-2 inline-flex items-center rounded-full bg-[rgba(79,184,178,0.14)] px-2 py-0.5 text-xs font-medium text-[var(--lagoon-deep)]">
-                          {t('portfolio.userDefined')}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      {isCustom && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDeleteAllocation(ticker)}
-                        >
-                          {t('portfolio.resetToDefault')}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    {allocations.map((alloc, idx) => (
-                      <div key={idx} className="flex items-center gap-3">
-                        <select
-                          value={alloc.assetClass}
-                          onChange={(e) => updateAllocation(ticker, idx, e.target.value as AssetAllocationType['assetClass'])}
-                          className="h-9 flex-1 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2 text-sm text-[var(--sea-ink)]"
-                        >
-                          {ASSET_CLASS_KEYS.map((key) => (
-                            <option key={key} value={key}>{t(ASSET_CLASS_I18N[key])}</option>
-                          ))}
-                        </select>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.1"
-                          value={alloc.weight * 100}
-                          onChange={(e) => updateWeight(ticker, idx, parseFloat(e.target.value) / 100)}
-                          className="h-9 w-24 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2 text-right text-sm text-[var(--sea-ink)]"
-                        />
-                        <span className="text-sm text-[var(--sea-ink-soft)]">%</span>
-                        {allocations.length > 1 && (
-                          <button
-                            onClick={() => removeAllocation(ticker, idx)}
-                            className="rounded p-1.5 text-[var(--sea-ink-soft)] transition hover:bg-red-50 hover:text-red-500"
-                            title={t('common.delete')}
-                          >
-                            ×
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between">
-                    <Button size="sm" variant="ghost" onClick={() => addAllocation(ticker)}>
-                      + {t('portfolio.addAllocation')}
-                    </Button>
-                    {isCustom && (
-                      <Button
-                        size="sm"
-                        loading={savingTicker === upper}
-                        onClick={() => handleSaveAllocation(ticker)}
-                      >
-                        {t('common.save')}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-    </>
-        )}
-      </Dialog>
     </main>
   )
 }

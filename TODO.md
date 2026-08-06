@@ -3,6 +3,4 @@
 - [x] Sync fund top holdings from Yahoo Finance (finance/chart/{ticker} includes topHoldings) and store them in the DB?
 - [x] Manual override UI so you can edit a security's asset class or custom allocations?
 - [x] Persisted allocation cache so it doesn't recompute on every page load?
-- [ ] Ensure stratamore is set up
-- [ ] What is price provider env var? why is it simulated?
-- [ ] Similarly do I need FinnHub?
+- [ ] 

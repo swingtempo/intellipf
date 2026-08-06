@@ -133,7 +133,7 @@ describe('getSecurityDetail', () => {
     expect((result as any).allocations).toBeDefined()
   })
 
-  it('returns undefined allocations when the user has none stored', async () => {
+  it('returns provider-based allocations when the user has none stored', async () => {
     testDb.exec(`INSERT INTO users (id, name) VALUES ('user-123', 'Test');`)
     testDb.exec(`INSERT INTO securities (id, ticker, name) VALUES ('s1', 'AAPL', 'Apple Inc.');`)
 
@@ -141,10 +141,12 @@ describe('getSecurityDetail', () => {
     const result = await (getSecurityDetail as any)({ data: { ticker: 'AAPL' } })
 
     expect(result).toBeDefined()
-    expect((result as any).allocations).toBeUndefined()
+    expect((result as any).allocations).toBeDefined()
+    expect((result as any).allocations[0].source).toBe('api_provider')
+    expect((result as any).allocations[0].assetClass).toBe('Equity')
   })
 
-  it('does not return another user\'s allocations', async () => {
+  it('does not return another user\'s allocations but returns provider-based ones', async () => {
     testDb.exec(`INSERT INTO users (id, name) VALUES ('user-123', 'Test');`)
     testDb.exec(`INSERT INTO securities (id, ticker, name) VALUES ('s1', 'AAPL', 'Apple Inc.');`)
     testDb.exec(`INSERT INTO security_allocations (id, user_id, ticker, allocations, updated_at) VALUES ('sa1', 'other-user', 'AAPL', '[{"assetClass":"Equity","weight":1}]', '2025-08-06T10:00:00.000Z');`)
@@ -153,7 +155,9 @@ describe('getSecurityDetail', () => {
     const result = await (getSecurityDetail as any)({ data: { ticker: 'AAPL' } })
 
     expect(result).toBeDefined()
-    expect((result as any).allocations).toBeUndefined()
+    // Should fall back to provider-based, not the other user's allocation
+    expect((result as any).allocations).toBeDefined()
+    expect((result as any).allocations[0].source).toBe('api_provider')
   })
 
   it('returns price history alongside allocations', async () => {
@@ -174,7 +178,7 @@ describe('getSecurityDetail', () => {
     expect((result as any).allocations?.length).toBe(1)
   })
 
-  it('returns empty allocations when stored JSON is invalid', async () => {
+  it('returns provider-based allocations when stored JSON is invalid', async () => {
     testDb.exec(`INSERT INTO users (id, name) VALUES ('user-123', 'Test');`)
     testDb.exec(`INSERT INTO securities (id, ticker, name) VALUES ('s1', 'AAPL', 'Apple Inc.');`)
     testDb.exec(`INSERT INTO security_allocations (id, user_id, ticker, allocations, updated_at) VALUES ('sa1', 'user-123', 'AAPL', 'not-valid-json', '2025-08-06T10:00:00.000Z');`)
@@ -183,6 +187,8 @@ describe('getSecurityDetail', () => {
     const result = await (getSecurityDetail as any)({ data: { ticker: 'AAPL' } })
 
     expect(result).toBeDefined()
-    expect((result as any).allocations).toBeUndefined()
+    // Falls through to provider-based allocation since stored JSON is invalid
+    expect((result as any).allocations).toBeDefined()
+    expect((result as any).allocations[0].source).toBe('api_provider')
   })
 })

@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm'
 import { ensureUserScoped } from '../user'
 import { getDb, schema } from '../db'
 import { fetchYahooPrices } from '../services/prices'
+import { getAssetAllocation } from '../services/allocations'
 import { safeJsonParse } from '#/lib/utils'
 
 export interface SecurityPricePoint {
@@ -91,7 +92,7 @@ export const getSecurityDetail = createServerFn({ method: 'GET' })
       }
     }
 
-    // Fetch stored allocation for this user
+    // Fetch user-defined allocation from DB
     const allocRow = await db
       .select()
       .from(schema.securityAllocations)
@@ -101,7 +102,15 @@ export const getSecurityDetail = createServerFn({ method: 'GET' })
     if (allocRow.length > 0) {
       const parsed = safeJsonParse<AssetAllocation[]>(allocRow[0].allocations, [])
       if (parsed.length > 0) {
-        allocations = parsed.map((a) => ({ ...a, source: 'user_defined' }))
+        allocations = parsed.map((a) => ({ ...a, source: 'user_defined' as const }))
+      }
+    }
+
+    // Fall back to provider-based allocation when no user-defined one exists
+    if (!allocations || allocations.length === 0) {
+      const providerAllocs = await getAssetAllocation(ticker)
+      if (providerAllocs && providerAllocs.length > 0) {
+        allocations = providerAllocs.map((a) => ({ ...a, source: 'api_provider' as const }))
       }
     }
 

@@ -2,8 +2,10 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { useTranslation } from 'react-i18next'
-import { ArrowDownRight, ArrowUpRight, ChevronLeft } from 'lucide-react'
+import { ArrowDownRight, ArrowUpRight, ChevronLeft, Pencil, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { getSecurityDetail } from '#/server/api/securities'
+import { updateSecurityAllocation, deleteSecurityAllocation, syncAssetAllocationsFn } from '#/server/api/allocations'
+import type { AssetAllocation as AssetAllocationType } from '#/server/services/allocations'
 import { PageHeader } from '../../components/page-header'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Badge } from '../../components/ui/badge'
@@ -11,6 +13,7 @@ import { EmptyState } from '../../components/ui/empty-state'
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table'
 import { LineChart } from '../../components/charts/line-chart'
 import type { ChartRange as ImportedChartRange } from '../../components/charts/line-chart'
+import { Button } from '../../components/ui/button'
 import { formatCurrency, formatDate, titleCase } from '#/lib/format'
 
 export const Route = createFileRoute('/security/$ticker')({
@@ -22,9 +25,10 @@ export const Route = createFileRoute('/security/$ticker')({
   component: SecurityPricePage,
 })
 
-type ChartRange = '1W' | ImportedChartRange
+type ChartRange = '1D' | '1W' | ImportedChartRange
 
 const RANGE_DAYS: Record<ChartRange, number> = {
+  '1D': 1,
   '1W': 7,
   '1M': 30,
   '3M': 90,
@@ -72,10 +76,27 @@ const ASSET_CLASS_I18N: Record<string, string> = {
   Other: 'allocations.other',
 }
 
+const ASSET_CLASS_KEYS: AssetAllocationType['assetClass'][] = [
+  'Equity',
+  'Fixed Income',
+  'Cash & Equivalents',
+  'Real Estate',
+  'Commodities',
+  'Alternative',
+  'Other',
+]
+
 function SecurityPricePage() {
   const { t } = useTranslation()
   const security = Route.useLoaderData()
   const [range, setRange] = useState<ChartRange>('1W')
+  const [allocations, setAllocations] = useState<AssetAllocationType[]>(
+    (security.allocations ?? []).map((a) => ({ assetClass: a.assetClass as AssetAllocationType['assetClass'], weight: a.weight })),
+  )
+  const [isEditing, setIsEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [saveMessage, setSaveMessage] = useState('')
 
   const latestPrice = security.latestPrice
   const priceHistory = security.priceHistory
@@ -90,6 +111,58 @@ function SecurityPricePage() {
   const lastPrice = visiblePrices[visiblePrices.length - 1]?.price
   const change = firstPrice && lastPrice ? lastPrice - firstPrice : null
   const changePercent = firstPrice ? (change ?? 0) / firstPrice : null
+
+  function updateClass(index: number, assetClass: AssetAllocationType['assetClass']) {
+    setAllocations((prev) => prev.map((a, i) => (i === index ? { ...a, assetClass } : a)))
+  }
+
+  function updateWeight(index: number, weight: number) {
+    setAllocations((prev) => prev.map((a, i) => (i === index ? { ...a, weight } : a)))
+  }
+
+  function addAllocation() {
+    setAllocations((prev) => [...prev, { assetClass: 'Equity', weight: 1 }])
+  }
+
+  function removeAllocation(index: number) {
+    setAllocations((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    setSaveMessage('')
+    try {
+      await updateSecurityAllocation({ data: { ticker: security.ticker, allocations } })
+      setSaveMessage(t('security.saved'))
+      setIsEditing(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleReset() {
+    setSaving(true)
+    try {
+      await deleteSecurityAllocation({ data: { ticker: security.ticker } })
+      const refreshed = await getSecurityDetail({ data: { ticker: security.ticker } })
+      setAllocations((refreshed.allocations ?? []).map((a) => ({ assetClass: a.assetClass as AssetAllocationType['assetClass'], weight: a.weight })))
+      setIsEditing(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleSync() {
+    setSyncing(true)
+    try {
+      await syncAssetAllocationsFn({ data: { tickers: [security.ticker] } })
+      const refreshed = await getSecurityDetail({ data: { ticker: security.ticker } })
+      setAllocations((refreshed.allocations ?? []).map((a) => ({ assetClass: a.assetClass as AssetAllocationType['assetClass'], weight: a.weight })))
+      setIsEditing(false)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   return (
     <main className="page-wrap px-4 pb-16 pt-8">
@@ -161,29 +234,98 @@ function SecurityPricePage() {
         </CardContent>
       </Card>
 
-      {security.allocations && security.allocations.length > 0 && (
-        <Card className="mt-6">
-          <CardHeader>
+      <Card className="mt-6">
+        <CardHeader>
+          <div className="flex items-center justify-between">
             <CardTitle>{t('portfolio.assetAllocation')}</CardTitle>
-          </CardHeader>
-          <CardContent>
+            {!isEditing ? (
+              <Button size="sm" variant="ghost" onClick={() => setIsEditing(true)}>
+                <Pencil className="h-3 w-3" />
+                {t('security.editAllocation')}
+              </Button>
+            ) : (
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={handleReset} loading={saving}>
+                  <Trash2 className="h-3 w-3" />
+                  {t('security.resetToDefault')}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)}>
+                  {t('common.cancel')}
+                </Button>
+              </div>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isEditing ? (
+            <div className="space-y-3">
+              {allocations.map((alloc, idx) => (
+                <div key={idx} className="flex items-center gap-3">
+                  <select
+                    value={alloc.assetClass}
+                    onChange={(e) => updateClass(idx, e.target.value as AssetAllocationType['assetClass'])}
+                    className="h-9 flex-1 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2 text-sm text-[var(--sea-ink)]"
+                  >
+                    {ASSET_CLASS_KEYS.map((key) => (
+                      <option key={key} value={key}>{t(ASSET_CLASS_I18N[key])}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={alloc.weight * 100}
+                    onChange={(e) => updateWeight(idx, parseFloat(e.target.value) / 100)}
+                    className="h-9 w-24 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2 text-right text-sm text-[var(--sea-ink)]"
+                  />
+                  <span className="text-sm text-[var(--sea-ink-soft)]">%</span>
+                  {allocations.length > 1 && (
+                    <button
+                      onClick={() => removeAllocation(idx)}
+                      className="rounded p-1.5 text-[var(--sea-ink-soft)] transition hover:bg-red-50 hover:text-red-500"
+                      title={t('common.delete')}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+              <div className="flex items-center justify-between pt-2">
+                <Button size="sm" variant="ghost" onClick={addAllocation}>
+                  + {t('security.addAllocation')}
+                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" loading={syncing} onClick={handleSync} variant="outline">
+                    <RefreshCw className={`h-3 w-3 ${syncing ? 'animate-spin' : ''}`} />
+                    {t('security.syncAllocations')}
+                  </Button>
+                  <Button size="sm" loading={saving} onClick={handleSave}>
+                    <Save className="h-3 w-3" />
+                    {t('common.save')}
+                  </Button>
+                </div>
+              </div>
+              {saveMessage && <p className="text-sm text-[var(--lagoon-deep)]">{saveMessage}</p>}
+            </div>
+          ) : (
             <div className="flex flex-wrap gap-2">
-              {security.allocations.map((alloc, idx) => (
+              {allocations.map((alloc, idx) => (
                 <span
                   key={idx}
                   className="inline-flex items-center rounded-full px-3 py-1 text-sm font-medium"
                   style={{ backgroundColor: `${CLASS_COLORS[alloc.assetClass.replace(/\s+/g, '')] ?? 'var(--lagoon-deep)'}1a`, color: CLASS_COLORS[alloc.assetClass.replace(/\s+/g, '')] ?? 'var(--lagoon-deep)' }}
                 >
                   {t(ASSET_CLASS_I18N[alloc.assetClass] ?? alloc.assetClass)} · {Math.round(alloc.weight * 100)}%
-                  {alloc.source === 'user_defined' && (
+                  {security.allocations?.some((a) => a.assetClass === alloc.assetClass) && (
                     <span className="ml-2 text-xs opacity-60">(custom)</span>
                   )}
                 </span>
               ))}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="mt-6">
         <CardHeader>
