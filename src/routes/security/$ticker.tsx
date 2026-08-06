@@ -112,6 +112,9 @@ function SecurityPricePage() {
   const change = firstPrice && lastPrice ? lastPrice - firstPrice : null
   const changePercent = firstPrice ? (change ?? 0) / firstPrice : null
 
+  const allocationsTotal = allocations.reduce((sum, a) => sum + a.weight, 0)
+  const allocationWarning = allocations.length > 0 && Math.abs(allocationsTotal - 1) > 0.001
+
   function updateClass(index: number, assetClass: AssetAllocationType['assetClass']) {
     setAllocations((prev) => prev.map((a, i) => (i === index ? { ...a, assetClass } : a)))
   }
@@ -121,18 +124,27 @@ function SecurityPricePage() {
   }
 
   function addAllocation() {
-    setAllocations((prev) => [...prev, { assetClass: 'Equity', weight: 1 }])
+    setAllocations((prev) => [...prev, { assetClass: 'Equity', weight: 0 }])
   }
 
   function removeAllocation(index: number) {
     setAllocations((prev) => prev.filter((_, i) => i !== index))
   }
 
+  function normalizeAllocations() {
+    if (allocations.length === 0) return []
+    const total = allocations.reduce((sum, a) => sum + a.weight, 0)
+    if (total <= 0 || Math.abs(total - 1) < 0.001) return allocations
+    return allocations.map((a) => ({ ...a, weight: a.weight / total }))
+  }
+
   async function handleSave() {
     setSaving(true)
     setSaveMessage('')
     try {
-      await updateSecurityAllocation({ data: { ticker: security.ticker, allocations } })
+      const normalized = normalizeAllocations()
+      await updateSecurityAllocation({ data: { ticker: security.ticker, allocations: normalized } })
+      setAllocations(normalized)
       setSaveMessage(t('security.saved'))
       setIsEditing(false)
     } finally {
@@ -292,15 +304,22 @@ function SecurityPricePage() {
                 </div>
               ))}
               <div className="flex items-center justify-between pt-2">
-                <Button size="sm" variant="ghost" onClick={addAllocation}>
-                  + {t('security.addAllocation')}
-                </Button>
+                <div className="flex items-center gap-3">
+                  <Button size="sm" variant="ghost" onClick={addAllocation}>
+                    + {t('security.addAllocation')}
+                  </Button>
+                  {allocationWarning && (
+                    <span className={`text-xs font-semibold ${allocationsTotal > 1 ? 'text-red-500' : 'text-amber-500'}`}>
+                      {Math.round(allocationsTotal * 100)}%
+                    </span>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   <Button size="sm" loading={syncing} onClick={handleSync} variant="outline">
                     <RefreshCw className={`h-3 w-3 ${syncing ? 'animate-spin' : ''}`} />
                     {t('security.syncAllocations')}
                   </Button>
-                  <Button size="sm" loading={saving} onClick={handleSave}>
+                  <Button size="sm" loading={saving} onClick={handleSave} disabled={allocationWarning}>
                     <Save className="h-3 w-3" />
                     {t('common.save')}
                   </Button>

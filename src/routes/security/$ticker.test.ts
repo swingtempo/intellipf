@@ -138,3 +138,70 @@ describe('filterByRange (security/$ticker route)', () => {
     expect(result.find((p) => p.price === 50)).toBeUndefined()
   })
 })
+
+describe('normalizeAllocations (security/$ticker route)', () => {
+  interface Allocation {
+    assetClass: string
+    weight: number
+  }
+
+  function normalizeAllocations(allocations: Allocation[]): Allocation[] {
+    if (allocations.length === 0) return []
+    const total = allocations.reduce((sum, a) => sum + a.weight, 0)
+    if (total <= 0 || Math.abs(total - 1) < 0.001) return allocations
+    return allocations.map((a) => ({ ...a, weight: a.weight / total }))
+  }
+
+  it('returns empty array for empty input', () => {
+    expect(normalizeAllocations([])).toEqual([])
+  })
+
+  it('returns unchanged allocations when they already sum to 1', () => {
+    const input: Allocation[] = [
+      { assetClass: 'Equity', weight: 0.6 },
+      { assetClass: 'Fixed Income', weight: 0.4 },
+    ]
+    expect(normalizeAllocations(input)).toEqual(input)
+  })
+
+  it('normalizes weights that sum to less than 1', () => {
+    const input: Allocation[] = [
+      { assetClass: 'Equity', weight: 0.3 },
+      { assetClass: 'Fixed Income', weight: 0.2 },
+    ]
+    const result = normalizeAllocations(input)
+    const total = result.reduce((s, a) => s + a.weight, 0)
+    expect(Math.abs(total - 1)).toBeLessThan(0.001)
+    // Relative proportions preserved
+    expect(result[0]!.weight).toBeCloseTo(0.3 / 0.5)
+    expect(result[1]!.weight).toBeCloseTo(0.2 / 0.5)
+  })
+
+  it('normalizes weights that sum to more than 1', () => {
+    const input: Allocation[] = [
+      { assetClass: 'Equity', weight: 0.8 },
+      { assetClass: 'Fixed Income', weight: 0.5 },
+    ]
+    const result = normalizeAllocations(input)
+    const total = result.reduce((s, a) => s + a.weight, 0)
+    expect(Math.abs(total - 1)).toBeLessThan(0.001)
+    expect(result[0]!.weight).toBeCloseTo(0.8 / 1.3)
+    expect(result[1]!.weight).toBeCloseTo(0.5 / 1.3)
+  })
+
+  it('returns unchanged when total is within tolerance of 1', () => {
+    const input: Allocation[] = [
+      { assetClass: 'Equity', weight: 0.9999 },
+      { assetClass: 'Fixed Income', weight: 0.0002 },
+    ]
+    expect(normalizeAllocations(input)).toEqual(input)
+  })
+
+  it('returns unchanged when total is zero', () => {
+    const inputZero: Allocation[] = [
+      { assetClass: 'Equity', weight: 0 },
+      { assetClass: 'Fixed Income', weight: 0 },
+    ]
+    expect(normalizeAllocations(inputZero)).toEqual(inputZero)
+  })
+})
