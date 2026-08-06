@@ -191,9 +191,14 @@ export const securities = sqliteTable(
     type: text('type').notNull().default('other'),
     currency: text('currency').notNull().default('USD'),
     isin: text('isin'),
+    sector: text('sector'),
+    industry: text('industry'),
     updatedAt: text('updated_at').notNull().default(now),
   },
-  (table) => [index('securities_ticker_idx').on(table.ticker)],
+  (table) => [
+    index('securities_ticker_idx').on(table.ticker),
+    uniqueIndex('securities_ticker_unique').on(table.ticker),
+  ],
 )
 
 export const holdings = sqliteTable(

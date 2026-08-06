@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from 'drizzle-orm'
+import { desc, eq, inArray, sql } from 'drizzle-orm'
 import { getDb, schema } from '../db'
 
 interface YahooTimestampResult {
@@ -21,35 +21,85 @@ interface YahooChartResult {
   }
 }
 
-async function fetchYahooPrices(tickers: string[]): Promise<Map<string, Map<string, number>>> {
-  const results = new Map<string, Map<string, number>>()
+interface YahooQuoteResponse {
+  quoteResponse: {
+    result: Array<{
+      symbol: string
+      shortName?: string
+      longName?: string
+      quoteType?: string
+      sector?: string
+      industry?: string
+      currency?: string
+    }>
+    error?: unknown
+  }
+}
+
+interface YahooPriceData {
+  prices: Map<string, number>
+  metadata?: {
+    name?: string
+    type?: string
+    sector?: string
+    industry?: string
+    currency?: string
+  }
+}
+
+export async function fetchYahooPrices(tickers: string[]): Promise<Map<string, YahooPriceData>> {
+  const results = new Map<string, YahooPriceData>()
 
   for (const ticker of tickers) {
     try {
-      const response = await fetch(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=30d&interval=1d`,
-        { headers: { 'User-Agent': 'IntelliPF/1.0' } },
-      )
+      const [chartResp, quoteResp] = await Promise.all([
+        fetch(
+          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=30d&interval=1d`,
+          { headers: { 'User-Agent': 'IntelliPF/1.0' } },
+        ),
+        fetch(
+          `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}`,
+          { headers: { 'User-Agent': 'IntelliPF/1.0' } },
+        ),
+      ])
 
-      if (!response.ok) continue
+      const pricesMap = new Map<string, number>()
+      let metadata: YahooPriceData['metadata'] = undefined
 
-      const json = (await response.json()) as { chart?: { result: YahooChartResult[]; error?: unknown } }
-      const chart = json?.chart?.result?.[0]
-      if (!chart) continue
-
-      const timestamps = chart.timestamp
-      const closes = chart.indicators?.quote?.[0]?.close
-      if (!timestamps || !closes) continue
-
-      const pricesByDate = new Map<string, number>()
-      for (let i = 0; i < timestamps.length; i++) {
-        const close = closes[i]
-        if (close == null) continue
-        const date = new Date(timestamps[i] * 1000).toISOString().slice(0, 10)
-        pricesByDate.set(date, Number(close))
+      if (chartResp.ok) {
+        const json = (await chartResp.json()) as { chart?: { result: YahooChartResult[]; error?: unknown } }
+        const chart = json?.chart?.result?.[0]
+        if (chart) {
+          const timestamps = chart.timestamp
+          const closes = chart.indicators?.quote?.[0]?.close
+          if (timestamps && closes) {
+            for (let i = 0; i < timestamps.length; i++) {
+              const close = closes[i]
+              if (close == null) continue
+              const date = new Date(timestamps[i] * 1000).toISOString().slice(0, 10)
+              pricesMap.set(date, Number(close))
+            }
+          }
+        }
       }
 
-      results.set(ticker, pricesByDate)
+      if (quoteResp.ok) {
+        const json = (await quoteResp.json()) as YahooQuoteResponse
+        const item = json?.quoteResponse?.result?.[0]
+        if (item) {
+          metadata = {
+            name: item.shortName ?? item.longName,
+            type: item.quoteType ?? 'other',
+            sector: item.sector,
+            industry: item.industry,
+            currency: item.currency,
+          }
+        }
+      }
+
+      if (pricesMap.size > 0 || metadata) {
+        results.set(ticker, { prices: pricesMap, metadata })
+      }
     } catch {
       // Skip failed requests
     }
@@ -73,14 +123,15 @@ export async function getPrice(ticker: string): Promise<{ price: number } | null
 
   const prices = await fetchYahooPrices([ticker])
   const tickerData = prices.get(ticker)
-  if (!tickerData || tickerData.size === 0) return null
+  if (!tickerData || tickerData.prices.size === 0) return null
 
-  const [, latestPriceValue] = [...tickerData.entries()].at(-1)!
+  const allEntries = [...tickerData.prices.entries()]
+  const [, latestPriceValue] = allEntries.at(-1)!
   if (latestPriceValue != null) {
     await db
       .insert(schema.stockPrices)
       .values(
-        [...tickerData.entries()].map(([date, price]) => ({
+        allEntries.map(([date, price]) => ({
           id: crypto.randomUUID(),
           ticker,
           date,
@@ -88,6 +139,30 @@ export async function getPrice(ticker: string): Promise<{ price: number } | null
         })),
       )
       .onConflictDoNothing()
+
+    if (tickerData.metadata) {
+      await db
+        .insert(schema.securities)
+        .values({
+          id: crypto.randomUUID(),
+          ticker,
+          name: tickerData.metadata.name,
+          type: tickerData.metadata.type ?? 'other',
+          currency: tickerData.metadata.currency ?? 'USD',
+          sector: tickerData.metadata.sector,
+          industry: tickerData.metadata.industry,
+        })
+        .onConflictDoUpdate({
+          target: schema.securities.ticker,
+          set: {
+            name: sql`excluded.name`,
+            type: sql`excluded.type`,
+            currency: sql`excluded.currency`,
+            sector: sql`excluded.sector`,
+            industry: sql`excluded.industry`,
+          },
+        })
+    }
   }
 
   return { price: latestPriceValue }
@@ -132,7 +207,7 @@ export async function syncStockPrices(userId: string): Promise<{ updated: number
     if (!holding.ticker) continue
 
     const tickerData = pricesByTicker.get(holding.ticker)
-    if (!tickerData || tickerData.size === 0) {
+    if (!tickerData || tickerData.prices.size === 0) {
       failed++
       continue
     }
@@ -141,7 +216,7 @@ export async function syncStockPrices(userId: string): Promise<{ updated: number
       await db
         .insert(schema.stockPrices)
         .values(
-          [...tickerData.entries()].map(([date, price]) => ({
+          [...tickerData.prices.entries()].map(([date, price]) => ({
             id: crypto.randomUUID(),
             ticker: holding.ticker!,
             date,
@@ -150,11 +225,36 @@ export async function syncStockPrices(userId: string): Promise<{ updated: number
         )
         .onConflictDoNothing()
 
-      const [, latestPrice] = [...tickerData.entries()].at(-1)!
+      const allEntries = [...tickerData.prices.entries()]
+      const [, latestPrice] = allEntries.at(-1)!
       await db
         .update(schema.holdings)
         .set({ price: latestPrice, priceAsOf: new Date().toISOString().slice(0, 10) })
         .where(eq(schema.holdings.id, holding.id))
+
+      if (tickerData.metadata) {
+        await db
+          .insert(schema.securities)
+          .values({
+            id: crypto.randomUUID(),
+            ticker: holding.ticker!,
+            name: tickerData.metadata.name,
+            type: tickerData.metadata.type ?? 'other',
+            currency: tickerData.metadata.currency ?? 'USD',
+            sector: tickerData.metadata.sector,
+            industry: tickerData.metadata.industry,
+          })
+          .onConflictDoUpdate({
+            target: schema.securities.ticker,
+            set: {
+              name: sql`excluded.name`,
+              type: sql`excluded.type`,
+              currency: sql`excluded.currency`,
+              sector: sql`excluded.sector`,
+              industry: sql`excluded.industry`,
+            },
+          })
+      }
 
       updated++
     } catch {

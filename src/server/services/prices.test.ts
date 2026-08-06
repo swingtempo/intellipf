@@ -26,9 +26,13 @@ function createTestDb() {
 
     CREATE TABLE securities (
       id TEXT PRIMARY KEY,
-      ticker TEXT,
+      ticker TEXT UNIQUE,
       name TEXT,
       type TEXT DEFAULT 'stock',
+      currency TEXT DEFAULT 'USD',
+      isin TEXT,
+      sector TEXT,
+      industry TEXT,
       updated_at TEXT DEFAULT 'now'
     );
 
@@ -64,7 +68,7 @@ vi.mock('#/server/db', () => ({
   schema,
 }))
 
-function makeYahooResponse(ticker: string, closes: number[]): object {
+function makeYahooChartResponse(ticker: string, closes: number[]): object {
   const now = Math.floor(Date.now() / 1000)
   const timestamps = []
   for (let i = closes.length - 1; i >= 0; i--) {
@@ -77,6 +81,25 @@ function makeYahooResponse(ticker: string, closes: number[]): object {
           meta: { regularMarketPrice: closes[closes.length - 1], symbol: ticker },
           timestamp: timestamps,
           indicators: { quote: [{ close: closes }] },
+        },
+      ],
+      error: undefined,
+    },
+  }
+}
+
+function makeYahooSearchResponse(ticker: string): object {
+  return {
+    quoteResponse: {
+      result: [
+        {
+          symbol: ticker,
+          shortName: `${ticker} Inc.`,
+          longName: `${ticker} Incorporated`,
+          quoteType: 'EQUITY',
+          sector: 'Technology',
+          industry: 'Consumer Electronics',
+          currency: 'USD',
         },
       ],
       error: undefined,
@@ -110,8 +133,6 @@ describe('getPrice', () => {
       INSERT INTO holdings (id, account_id, security_id, quantity) VALUES ('h1', 'a1', 's1', 10);
     `)
 
-    const now = Math.floor(Date.now() / 1000)
-    const yesterday = now - 86400
     testDb.exec(`
       INSERT INTO stock_prices (id, ticker, date, price) VALUES ('sp1', 'AAPL', '2024-01-01', 150.0);
       INSERT INTO stock_prices (id, ticker, date, price) VALUES ('sp2', 'AAPL', '2024-01-02', 155.5);
@@ -130,11 +151,11 @@ describe('getPrice', () => {
       INSERT INTO holdings (id, account_id, security_id, quantity) VALUES ('h1', 'a1', 's1', 10);
     `)
 
-    const yahooData = makeYahooResponse('AAPL', [148.0, 150.0, 152.5, 155.0])
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(yahooData),
-    })
+    const yahooChart = makeYahooChartResponse('AAPL', [148.0, 150.0, 152.5, 155.0])
+    const yahooSearch = makeYahooSearchResponse('AAPL')
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooChart) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooSearch) })
 
     const { getPrice } = await import('#/server/services/prices')
     const result = await getPrice('AAPL')
@@ -190,11 +211,11 @@ describe('syncStockPrices', () => {
     testDb.exec(`INSERT INTO securities (id, ticker, name) VALUES ('s1', 'AAPL', 'Apple Inc.');`)
     testDb.exec(`INSERT INTO holdings (id, account_id, security_id, quantity) VALUES ('h1', 'a1', 's1', 10);`)
 
-    const yahooAapl = makeYahooResponse('AAPL', [148.0, 150.0, 152.5, 155.0])
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(yahooAapl),
-    })
+    const yahooAaplChart = makeYahooChartResponse('AAPL', [148.0, 150.0, 152.5, 155.0])
+    const yahooAaplSearch = makeYahooSearchResponse('AAPL')
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooAaplChart) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooAaplSearch) })
 
     const { syncStockPrices } = await import('#/server/services/prices')
     const result = await syncStockPrices('u1')
@@ -219,11 +240,11 @@ describe('syncStockPrices', () => {
     testDb.exec(`INSERT INTO securities (id, ticker, name) VALUES ('s1', 'AAPL', 'Apple Inc.');`)
     testDb.exec(`INSERT INTO holdings (id, account_id, security_id, quantity, price) VALUES ('h1', 'a1', 's1', 10, 140.0);`)
 
-    const yahooAapl = makeYahooResponse('AAPL', [148.0, 150.0, 152.5, 155.0])
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(yahooAapl),
-    })
+    const yahooAaplChart = makeYahooChartResponse('AAPL', [148.0, 150.0, 152.5, 155.0])
+    const yahooAaplSearch = makeYahooSearchResponse('AAPL')
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooAaplChart) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooAaplSearch) })
 
     const { syncStockPrices } = await import('#/server/services/prices')
     await syncStockPrices('u1')
@@ -242,11 +263,15 @@ describe('syncStockPrices', () => {
     testDb.exec(`INSERT INTO holdings (id, account_id, security_id, quantity) VALUES ('h1', 'a1', 's1', 10);`)
     testDb.exec(`INSERT INTO holdings (id, account_id, security_id, quantity) VALUES ('h2', 'a1', 's2', 5);`)
 
-    const yahooAapl = makeYahooResponse('AAPL', [148.0, 150.0, 155.0])
-    const yahooMsft = makeYahooResponse('MSFT', [380.0, 385.0, 390.0])
+    const yahooAaplChart = makeYahooChartResponse('AAPL', [148.0, 150.0, 155.0])
+    const yahooAaplSearch = makeYahooSearchResponse('AAPL')
+    const yahooMsftChart = makeYahooChartResponse('MSFT', [380.0, 385.0, 390.0])
+    const yahooMsftSearch = makeYahooSearchResponse('MSFT')
     globalThis.fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooAapl) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooMsft) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooAaplChart) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooAaplSearch) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooMsftChart) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooMsftSearch) })
 
     const { syncStockPrices } = await import('#/server/services/prices')
     const result = await syncStockPrices('u1')
@@ -281,11 +306,11 @@ describe('syncStockPrices', () => {
     testDb.exec(`INSERT INTO securities (id, ticker, name) VALUES ('s1', 'AAPL', 'Apple Inc.');`)
     testDb.exec(`INSERT INTO holdings (id, account_id, security_id, quantity) VALUES ('h1', 'a1', 's1', 10);`)
 
-    const yahooAapl = makeYahooResponse('AAPL', [148.0, 150.0, 155.0])
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(yahooAapl),
-    })
+    const yahooAaplChart = makeYahooChartResponse('AAPL', [148.0, 150.0, 155.0])
+    const yahooAaplSearch = makeYahooSearchResponse('AAPL')
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooAaplChart) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(yahooAaplSearch) })
 
     const { syncStockPrices } = await import('#/server/services/prices')
     await syncStockPrices('u1')

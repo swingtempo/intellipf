@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router'
+import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { PieChart as PieIcon, RefreshCw, Settings2 } from 'lucide-react'
@@ -255,12 +255,16 @@ function PortfolioPage() {
                 {data.holdings.map((holding) => (
                   <TR key={`${holding.accountId}-${holding.securityId}`}>
                     <TD>
-                      <span className="inline-flex items-center gap-2">
+                      <Link
+                        to="/security/$ticker"
+                        params={{ ticker: holding.ticker ?? '' }}
+                        className="inline-flex items-center gap-2 no-underline"
+                      >
                         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[rgba(79,184,178,0.14)] text-xs font-bold text-[var(--lagoon-deep)]">
                           {(holding.ticker || '?').slice(0, 3).toUpperCase()}
                         </span>
-                        <span className="font-bold">{holding.ticker || '—'}</span>
-                      </span>
+                        <span className="font-bold hover:text-[var(--lagoon-deep)]">{holding.ticker || '—'}</span>
+                      </Link>
                     </TD>
                     <TD className="text-[var(--sea-ink-soft)]">{holding.name ?? '—'}</TD>
                     <TD className="text-[var(--sea-ink-soft)]">{holding.accountName}</TD>

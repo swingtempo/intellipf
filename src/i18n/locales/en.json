@@ -143,7 +143,14 @@
     "saved": "Allocation saved",
     "deleted": "Allocation deleted",
     "allocationsSynced": "{{count}} allocation(s) synced from providers",
-    "noProvidersAvailable": "No allocation providers available to sync"
+    "noProvidersAvailable": "No allocation providers available to sync",
+    "priceHistory": "Price History",
+    "viewChart": "View Chart"
+  },
+  "security": {
+    "title": "Security Detail",
+    "noPriceData": "No price data available yet",
+    "fetchingPrices": "Fetching prices..."
   },
   "retirement": {
     "title": "Retirement Planner",
