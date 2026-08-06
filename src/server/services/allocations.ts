@@ -228,15 +228,15 @@ export async function getAssetAllocation(
     }
   }
 
+  // Yahoo Finance works without an API key — tried first.
+  const yahoo = yahooFinanceAllocationProvider
+  const yahooResult = await yahoo.getAssetAllocation(ticker)
+  if (yahooResult) return yahooResult
   const alpha = getEnv('ALPHA_VANTAGE_API_KEY') ? alphaVantageAllocationProvider : null
   if (alpha) {
     const result = await alpha.getAssetAllocation(ticker)
     if (result) return result
   }
-  // Yahoo Finance works without an API key.
-  const yahoo = yahooFinanceAllocationProvider
-  const yahooResult = await yahoo.getAssetAllocation(ticker)
-  if (yahooResult) return yahooResult
   const dealcharts = getEnv('DEALCHARTS_API_KEY') ? dealChartsAllocationProvider : null
   if (dealcharts) {
     const result = await dealcharts.getAssetAllocation(ticker)
@@ -299,10 +299,10 @@ export async function syncAssetAllocations(userId: string, tickers: string[]): P
     // Fetch directly from providers without reading the DB so we always get fresh data.
     let result: AssetAllocation[] | null = null
     if (hasRealProviders) {
-      const alpha = getEnv('ALPHA_VANTAGE_API_KEY') ? await alphaVantageAllocationProvider.getAssetAllocation(ticker) : null
+      const yahooResult = await yahooFinanceAllocationProvider.getAssetAllocation(ticker)
       result =
-        alpha ??
-        (await yahooFinanceAllocationProvider.getAssetAllocation(ticker)) ??
+        yahooResult ??
+        (getEnv('ALPHA_VANTAGE_API_KEY') ? await alphaVantageAllocationProvider.getAssetAllocation(ticker) : null) ??
         (getEnv('DEALCHARTS_API_KEY') ? await dealChartsAllocationProvider.getAssetAllocation(ticker) : null)
     } else {
       result = await simulatedAllocationProvider.getAssetAllocation(ticker)
