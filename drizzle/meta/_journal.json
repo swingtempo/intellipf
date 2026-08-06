@@ -15,6 +15,13 @@
       "when": 1785973161617,
       "tag": "0001_lethal_blazing_skull",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785973200000,
+      "tag": "0002_stock_prices",
+      "breakpoints": true
     }
   ]
 }

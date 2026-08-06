@@ -218,6 +218,21 @@ export const holdings = sqliteTable(
   ],
 )
 
+export const stockPrices = sqliteTable(
+  'stock_prices',
+  {
+    id: text('id').primaryKey(),
+    ticker: text('ticker').notNull(),
+    date: text('date').notNull(),
+    price: real('price').notNull(),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (table) => [
+    uniqueIndex('stock_prices_ticker_date_unique').on(table.ticker, table.date),
+    index('stock_prices_ticker_idx').on(table.ticker),
+  ],
+)
+
 export const securityAllocations = sqliteTable(
   'security_allocations',
   {

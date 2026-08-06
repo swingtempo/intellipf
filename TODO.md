@@ -1,5 +1,5 @@
-* Save/persist allocations to database
-* Save/persist stock prices, by date.
+- [x] Save/persist allocations to database
+- [x] Save/persist stock prices, by date.
 
 Want me to add:
 1. Sync fund top holdings from Yahoo Finance (finance/chart/{ticker} includes topHoldings) and store them in the DB?
