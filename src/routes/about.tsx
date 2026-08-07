@@ -24,7 +24,7 @@ const FEATURES = [
   { icon: Database, title: 'Portable data', description: 'Bring your own Plaid keys, price provider keys, and LLM keys. Everything is configured via .env.' },
 ]
 
-export function AboutPage() {
+function AboutPage() {
   const { t } = useTranslation()
 
   return (
