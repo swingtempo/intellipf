@@ -1,7 +1,7 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router'
+import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Building2, RefreshCw, Trash2 } from 'lucide-react'
+import { Building2, Info, RefreshCw, Trash2 } from 'lucide-react'
 import { plaidStatus, removeItem, syncItem } from '#/server/api/plaid'
 import { getChatConfig } from '#/server/api/chat'
 import { PageHeader } from '../components/page-header'
@@ -146,6 +146,22 @@ function SettingsPage() {
           ) : (
             <span className="text-sm text-amber-600">{t('settings.llmNotConfigured')}</span>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>{t('settings.about')}</CardTitle>
+          <CardDescription>{t('settings.aboutHint')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Link
+            to="/about"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--lagoon-deep)] no-underline"
+          >
+            <Info className="h-4 w-4" />
+            {t('settings.viewAbout')}
+          </Link>
         </CardContent>
       </Card>
     </main>

@@ -130,7 +130,7 @@ function AccountsPage() {
           description={t('accounts.noAccountsHint')}
           action={
             <div className="flex gap-2">
-              {plaid.configured && <PlaidLinkButton />}
+        {plaid.configured && accounts.length > 0 && <PlaidLinkButton />}
               <Link
                 to="/settings"
                 className="inline-flex h-10 items-center rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-4 text-sm font-semibold text-[var(--sea-ink)] no-underline transition hover:text-[var(--lagoon-deep)]"

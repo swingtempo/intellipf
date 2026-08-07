@@ -239,7 +239,10 @@
     "holdingsChanged": "holdings updated",
     "llmProvider": "Assistant provider",
     "llmConfigured": "Configured",
-    "llmNotConfigured": "Not configured"
+    "llmNotConfigured": "Not configured",
+    "about": "About",
+    "aboutHint": "About IntelliPF and the technologies it uses",
+    "viewAbout": "View the About page"
   },
   "allocations": {
     "equity": "Equity",
@@ -253,7 +256,28 @@
   "about": {
     "title": "About IntelliPF",
     "subtitle": "A self-hosted, intelligent personal finance dashboard",
+    "intro": "IntelliPF is a self-hosted personal finance dashboard that connects to your banks through Plaid (or imports Quicken QIF files), stores everything in a local SQLite database, and layers on budgets, goals, an investment portfolio with asset allocation, a Monte Carlo retirement planner, and an AI assistant that can query your own data.",
     "features": "Features",
-    "stack": "Built with"
+    "stack": "Built with",
+    "featureNetWorthTitle": "Net worth tracking",
+    "featureNetWorthDesc": "Automatic daily balance snapshots and a net worth history built from your real accounts.",
+    "featureBudgetsTitle": "Budgets & goals",
+    "featureBudgetsDesc": "Monthly category budgets with live spending progress, plus savings goals with target dates.",
+    "featureInvestmentsTitle": "Investments",
+    "featureInvestmentsDesc": "Holdings from Plaid Investments or Quicken QIF files, with live pricing and asset allocation.",
+    "featureAssistantTitle": "AI finance assistant",
+    "featureAssistantDesc": "Ask questions in plain language. The assistant writes read-only SQL against your own database.",
+    "featurePrivacyTitle": "Self-hosted & private",
+    "featurePrivacyDesc": "All data lives in a local SQLite file on your machine. No third-party analytics or tracking.",
+    "featurePortableTitle": "Portable data",
+    "featurePortableDesc": "Bring your own Plaid keys, price provider keys, and LLM keys. Everything is configured via .env.",
+    "stackItems": [
+      "TanStack Start (React Router + Server Functions)",
+      "SQLite + Drizzle ORM",
+      "Plaid API",
+      "react-i18next internationalization",
+      "OpenAI / Anthropic / OpenRouter LLM providers",
+      "Finnhub, Alpha Vantage, Yahoo Finance, and DealCharts data providers"
+    ]
   }
 }
