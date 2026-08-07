@@ -3,4 +3,6 @@
 - [x] Sync fund top holdings from Yahoo Finance (finance/chart/{ticker} includes topHoldings) and store them in the DB?
 - [x] Manual override UI so you can edit a security's asset class or custom allocations?
 - [x] Persisted allocation cache so it doesn't recompute on every page load?
-- [ ] 
+- [ ] Test plaid stuff
+- [ ] Allow deletion of accounts
+- [ ] Do we get transactions for brokerages with plaid?

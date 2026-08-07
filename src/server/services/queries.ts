@@ -13,6 +13,7 @@ export interface AccountWithBalance {
   institutionName: string | null
   source: string
   isActive: boolean
+  plaidItemId: string | null
   balance: number | null
   available: number | null
   limit: number | null
@@ -60,6 +61,7 @@ export async function getAccountsWithBalance(userId: string) {
       institutionName: account.institutionName,
       source: account.source,
       isActive: account.isActive,
+      plaidItemId: account.plaidItemId,
       balance: latest?.current ?? latest?.available ?? null,
       available: latest?.available ?? null,
       limit: latest?.limit ?? null,

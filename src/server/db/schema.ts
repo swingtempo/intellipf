@@ -317,3 +317,30 @@ export const settings = sqliteTable('settings', {
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
   updatedAt: text('updated_at').notNull().default(now),
 })
+
+export const matchReviewStatuses = ['pending', 'merged', 'dismissed'] as const
+export type MatchReviewStatus = (typeof matchReviewStatuses)[number]
+
+export const transactionMatchReviews = sqliteTable(
+  'transaction_match_reviews',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'cascade' }),
+    localTransactionId: text('local_transaction_id')
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'cascade' }),
+    onlineTransactionId: text('online_transaction_id').notNull(), // Plaid transaction_id
+    status: text('status').$type<MatchReviewStatus>().notNull().default('pending'),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (table) => [
+    uniqueIndex('match_reviews_pair_unique').on(table.localTransactionId, table.onlineTransactionId),
+    index('match_reviews_user_status_idx').on(table.userId, table.status),
+  ],
+)

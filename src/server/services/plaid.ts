@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, ne } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, ne } from 'drizzle-orm'
 import {
   Configuration,
   PlaidApi,
@@ -10,6 +10,12 @@ import { getDb, schema } from '../db'
 import { now } from '../db/schema'
 import type { AccountType } from '../db/schema'
 import type { CountryCode, Products } from 'plaid'
+import {
+  deleteReviewsForOnlineId,
+  findLocalMatch,
+  markReviewMerged,
+  recordMatchReview,
+} from './transactionMatch'
 
 function getPlaidConfig(): { client: PlaidApi; env: string } | null {
   const clientId = getEnv('PLAID_CLIENT_ID')
@@ -246,15 +252,21 @@ export async function syncTransactionsForItem(itemId: string) {
     hasMore = data.has_more
   }
 
-  const addedCount = added.length
-  const modifiedCount = modified.length
-  const removedCount = removed.length
+  const counts = { added: 0, modified: 0, removed: 0, merged: 0, review: 0 }
 
   for (const tx of added) {
-    await upsertPlaidTransaction(item.userId, tx, accountMap)
+    const result = await upsertPlaidTransaction(item.userId, tx, accountMap)
+    if (result === 'added') counts.added++
+    else if (result === 'modified') counts.modified++
+    else if (result === 'merged') counts.merged++
+    else if (result === 'review') counts.review++
   }
   for (const tx of modified) {
-    await upsertPlaidTransaction(item.userId, tx, accountMap)
+    const result = await upsertPlaidTransaction(item.userId, tx, accountMap)
+    if (result === 'added') counts.added++
+    else if (result === 'modified') counts.modified++
+    else if (result === 'merged') counts.merged++
+    else if (result === 'review') counts.review++
   }
   for (const r of removed) {
     const existingTx = await db
@@ -262,9 +274,17 @@ export async function syncTransactionsForItem(itemId: string) {
       .from(schema.transactions)
       .where(eq(schema.transactions.plaidTransactionId, r.transaction_id))
       .limit(1)
-    if (existingTx[0]) {
+    if (!existingTx[0]) continue
+    await deleteReviewsForOnlineId(r.transaction_id)
+    if (existingTx[0].source === 'plaid') {
       await db.delete(schema.transactions).where(eq(schema.transactions.id, existingTx[0].id))
+    } else {
+      await db
+        .update(schema.transactions)
+        .set({ plaidTransactionId: null })
+        .where(eq(schema.transactions.id, existingTx[0].id))
     }
+    counts.removed++
   }
 
   await db
@@ -272,19 +292,19 @@ export async function syncTransactionsForItem(itemId: string) {
     .set({ cursor: cursor ?? undefined, lastSyncAt: now, updatedAt: now })
     .where(eq(schema.plaidItems.id, itemId))
 
-  return { added: addedCount, modified: modifiedCount, removed: removedCount }
+  return counts
 }
 
 async function upsertPlaidTransaction(
   userId: string,
   tx: Record<string, unknown>,
   accountMap: Map<string, string>,
-) {
+): Promise<'added' | 'modified' | 'merged' | 'review' | 'skipped'> {
   const db = getDb()
   const plaidTransactionId = String(tx['transaction_id'])
   const plaidAccountId = String(tx['account_id'])
   const accountId = accountMap.get(plaidAccountId)
-  if (!accountId) return
+  if (!accountId) return 'skipped'
 
   const amount = Number(tx['amount'] ?? 0)
   const date = String(tx['date'])
@@ -309,11 +329,52 @@ async function upsertPlaidTransaction(
   if (existing[0]) {
     await db
       .update(schema.transactions)
-      .set(values)
+      .set({
+        amount,
+        name: values.name,
+        merchantName: values.merchantName,
+        category: existing[0].source === 'plaid' ? values.category : existing[0].category,
+        date,
+        currencyCode: values.currencyCode,
+        pending: values.pending,
+        source: existing[0].source,
+      })
       .where(eq(schema.transactions.id, existing[0].id))
-  } else {
-    await db.insert(schema.transactions).values({ id: uid('txn'), ...values })
+    return 'modified'
   }
+
+  const match = await findLocalMatch(userId, accountId, tx)
+  if (match && match.confidence === 'high') {
+    await db
+      .update(schema.transactions)
+      .set({
+        plaidTransactionId,
+        name: values.name,
+        merchantName: values.merchantName,
+        amount,
+        date,
+        currencyCode: values.currencyCode,
+        pending: values.pending,
+      })
+      .where(eq(schema.transactions.id, match.transaction.id))
+    await markReviewMerged(match.transaction.id, plaidTransactionId)
+    return 'merged'
+  }
+
+  if (match && match.confidence === 'low') {
+    const id = uid('txn')
+    await db.insert(schema.transactions).values({ id, ...values })
+    await recordMatchReview({
+      userId,
+      accountId,
+      localTransactionId: match.transaction.id,
+      onlineTransactionId: plaidTransactionId,
+    })
+    return 'review'
+  }
+
+  await db.insert(schema.transactions).values({ id: uid('txn'), ...values })
+  return 'added'
 }
 
 export async function syncInvestmentHoldingsForItem(itemId: string) {
@@ -460,6 +521,32 @@ async function upsertHolding(input: {
   }
 }
 
+export async function syncItemForUser(userId: string, itemId: string) {
+  const db = getDb()
+  const [item] = await db
+    .select()
+    .from(schema.plaidItems)
+    .where(and(eq(schema.plaidItems.id, itemId), eq(schema.plaidItems.userId, userId)))
+    .limit(1)
+  if (!item) throw new Error('Plaid item not found')
+  await fetchAccountsForItem(itemId)
+  const transactions = await syncTransactionsForItem(itemId)
+  const holdings = await syncInvestmentHoldingsForItem(itemId)
+  return { itemId, transactions, holdings }
+}
+
+export async function syncAccountForUser(userId: string, accountId: string) {
+  const db = getDb()
+  const [account] = await db
+    .select()
+    .from(schema.accounts)
+    .where(and(eq(schema.accounts.id, accountId), eq(schema.accounts.userId, userId)))
+    .limit(1)
+  if (!account) throw new Error('Account not found')
+  if (!account.plaidItemId) throw new Error('Account is not linked to Plaid')
+  return syncItemForUser(userId, account.plaidItemId)
+}
+
 export async function syncAllPlaidForUser(userId: string) {
   const db = getDb()
   const items = await db
@@ -468,7 +555,13 @@ export async function syncAllPlaidForUser(userId: string) {
     .where(eq(schema.plaidItems.userId, userId))
   const results: Array<{
     itemId: string
-    transactions: { added: number; modified: number; removed: number }
+    transactions: {
+      added: number
+      modified: number
+      removed: number
+      merged: number
+      review: number
+    }
     holdings: { synced: boolean; holdings: number; reason?: string }
   }> = []
   for (const item of items) {
@@ -490,10 +583,32 @@ export async function listPlaidItems(userId: string) {
     .select()
     .from(schema.accounts)
     .where(eq(schema.accounts.userId, userId))
-  return items.map((item) => ({
-    ...item,
-    accounts: accountRows.filter((a) => a.plaidItemId === item.id),
-  }))
+  const pendingReviews = await db
+    .select({ accountId: schema.transactionMatchReviews.accountId })
+    .from(schema.transactionMatchReviews)
+    .where(
+      and(
+        eq(schema.transactionMatchReviews.userId, userId),
+        eq(schema.transactionMatchReviews.status, 'pending'),
+      ),
+    )
+  const pendingCountByAccount = new Map<string, number>()
+  for (const review of pendingReviews) {
+    pendingCountByAccount.set(
+      review.accountId,
+      (pendingCountByAccount.get(review.accountId) ?? 0) + 1,
+    )
+  }
+  return items.map((item) => {
+    const accounts = accountRows
+      .filter((a) => a.plaidItemId === item.id)
+      .map((a) => ({
+        ...a,
+        pendingReviewCount: pendingCountByAccount.get(a.id) ?? 0,
+      }))
+    const pendingReviewCount = accounts.reduce((sum, a) => sum + a.pendingReviewCount, 0)
+    return { ...item, accounts, pendingReviewCount }
+  })
 }
 
 export async function removePlaidItem(userId: string, itemId: string) {
@@ -512,19 +627,49 @@ export async function removePlaidItem(userId: string, itemId: string) {
       // token may already be invalid server-side
     }
   }
-  const accountIds = await db
-    .select({ id: schema.accounts.id })
+  const accountRows = await db
+    .select()
     .from(schema.accounts)
     .where(eq(schema.accounts.plaidItemId, itemId))
-  if (accountIds.length > 0) {
+  for (const account of accountRows) {
     await db
-      .delete(schema.transactions)
-      .where(inArray(schema.transactions.accountId, accountIds.map((a) => a.id)))
-    await db
-      .delete(schema.balances)
-      .where(inArray(schema.balances.accountId, accountIds.map((a) => a.id)))
-    await db.delete(schema.holdings).where(inArray(schema.holdings.accountId, accountIds.map((a) => a.id)))
-    await db.delete(schema.accounts).where(inArray(schema.accounts.id, accountIds.map((a) => a.id)))
+      .delete(schema.transactionMatchReviews)
+      .where(eq(schema.transactionMatchReviews.accountId, account.id))
+    const localTxs = await db
+      .select({ id: schema.transactions.id })
+      .from(schema.transactions)
+      .where(
+        and(
+          eq(schema.transactions.accountId, account.id),
+          inArray(schema.transactions.source, ['qif', 'manual']),
+        ),
+      )
+      .limit(1)
+    if (localTxs.length > 0) {
+      await db
+        .delete(schema.transactions)
+        .where(and(eq(schema.transactions.accountId, account.id), eq(schema.transactions.source, 'plaid')))
+      await db
+        .update(schema.transactions)
+        .set({ plaidTransactionId: null })
+        .where(
+          and(
+            eq(schema.transactions.accountId, account.id),
+            isNotNull(schema.transactions.plaidTransactionId),
+          ),
+        )
+      await db.delete(schema.balances).where(eq(schema.balances.accountId, account.id))
+      await db.delete(schema.holdings).where(eq(schema.holdings.accountId, account.id))
+      await db
+        .update(schema.accounts)
+        .set({ plaidItemId: null, plaidAccountId: null, source: 'manual' })
+        .where(eq(schema.accounts.id, account.id))
+    } else {
+      await db.delete(schema.transactions).where(eq(schema.transactions.accountId, account.id))
+      await db.delete(schema.balances).where(eq(schema.balances.accountId, account.id))
+      await db.delete(schema.holdings).where(eq(schema.holdings.accountId, account.id))
+      await db.delete(schema.accounts).where(eq(schema.accounts.id, account.id))
+    }
   }
   await db.delete(schema.plaidItems).where(eq(schema.plaidItems.id, itemId))
   return true

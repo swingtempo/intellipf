@@ -2,7 +2,7 @@ import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Building2, RefreshCw, Trash2 } from 'lucide-react'
-import { plaidStatus, removeItem, syncAll } from '#/server/api/plaid'
+import { plaidStatus, removeItem, syncItem } from '#/server/api/plaid'
 import { getChatConfig } from '#/server/api/chat'
 import { PageHeader } from '../components/page-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
@@ -26,30 +26,37 @@ function SettingsPage() {
   const router = useRouter()
   const initial = Route.useLoaderData()
   const [plaid, setPlaid] = useState(initial.plaid)
-  const [syncing, setSyncing] = useState(false)
-  const [removing, setRemoving] = useState(false)
+  const [syncingId, setSyncingId] = useState<string | null>(null)
+  const [removingId, setRemovingId] = useState<string | null>(null)
+  const [results, setResults] = useState<
+    Record<
+      string,
+      { added: number; modified: number; removed: number; merged: number; review: number; [key: string]: number }
+    >
+  >({})
 
-  async function doSync() {
-    setSyncing(true)
+  async function doSync(itemId: string) {
+    setSyncingId(itemId)
     try {
-      await syncAll()
+      const result = await syncItem({ data: { itemId } })
+      setResults((prev) => ({ ...prev, [itemId]: result.transactions }))
       const fresh = await plaidStatus()
       setPlaid(fresh)
       await router.invalidate()
     } finally {
-      setSyncing(false)
+      setSyncingId(null)
     }
   }
 
   async function doRemove(itemId: string) {
-    setRemoving(true)
+    setRemovingId(itemId)
     try {
       await removeItem({ data: { itemId } })
       const fresh = await plaidStatus()
       setPlaid(fresh)
       await router.invalidate()
     } finally {
-      setRemoving(false)
+      setRemovingId(null)
     }
   }
 
@@ -86,15 +93,25 @@ function SettingsPage() {
                       <p className="text-xs text-[var(--sea-ink-soft)]">
                         {item.accounts.length} {t('accounts.title').toLowerCase()} ·{' '}
                         {item.lastSyncAt ? `Synced ${formatDate(item.lastSyncAt)}` : t('common.none')}
+                        {item.pendingReviewCount > 0 && (
+                          <span className="text-amber-600">
+                            {' '}· {item.pendingReviewCount} {t('accounts.toReview')}
+                          </span>
+                        )}
                       </p>
+                      {results[item.id] && (
+                        <p className="mt-1 text-xs text-[var(--sea-ink-soft)]">
+                          {t('accounts.syncSummary', results[item.id])}
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-2">
                       <Badge tone="success">{t('settings.connected')}</Badge>
-                      <Button variant="outline" size="sm" onClick={() => void doSync()} loading={syncing}>
+                      <Button variant="outline" size="sm" onClick={() => void doSync(item.id)} loading={syncingId === item.id}>
                         <RefreshCw className="h-3.5 w-3.5" />
                         {t('settings.sync')}
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => void doRemove(item.id)} loading={removing}>
+                      <Button variant="ghost" size="icon" onClick={() => void doRemove(item.id)} loading={removingId === item.id}>
                         <Trash2 className="h-4 w-4 text-red-500" />
                       </Button>
                     </div>
